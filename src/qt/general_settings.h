@@ -26,7 +26,6 @@
 #include "data_dialog.h"
 #include "cheat_menu.h"
 #include "rtc_menu.h"
-#include "tbf_menu.h"
 
 class gen_settings : public QDialog
 {
@@ -120,7 +119,6 @@ class gen_settings : public QDialog
 	//Misc widgets
 	cheat_menu* dmg_cheat_menu;
 	rtc_menu* real_time_clock_menu;
-	tbf_menu* turbo_file_menu;
 	QMessageBox* warning_box;
 
 	void update_volume();

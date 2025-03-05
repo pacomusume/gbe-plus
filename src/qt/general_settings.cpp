@@ -774,7 +774,6 @@ gen_settings::gen_settings(QWidget *parent) : QDialog(parent)
 
 	dmg_cheat_menu = new cheat_menu;
 	real_time_clock_menu = new rtc_menu;
-	turbo_file_menu = new tbf_menu;
 
 	resize(450, 450);
 	setWindowTitle(tr("GBE+ Settings"));
