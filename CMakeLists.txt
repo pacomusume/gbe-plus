@@ -4,6 +4,7 @@ project(gbe_plus)
 
 if (NOT MSVC)
 	add_definitions(-O3 -funroll-loops -Wno-error -Wno-narrowing -std=c++0x)
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pthread")
 endif()
 
 if (MSVC AND WIN32)
