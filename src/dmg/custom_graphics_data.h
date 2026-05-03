@@ -165,12 +165,10 @@ struct dmg_cgfx_data
 	std::atomic<int> imgs_total_count;
 
 	dmg_cgfx_data()
-		: brightnessMod(nullptr), alphaCpy(nullptr), tempStrip(nullptr), frameCnt(0)
+		: brightnessMod(nullptr), alphaCpy(nullptr), tempStrip(nullptr), frameCnt(0),
+		  stop_loading(false), loading_complete(true),
+		  imgs_loaded_count(0), imgs_total_count(0)
 	{
-		stop_loading.store(false);
-		loading_complete.store(true);
-		imgs_loaded_count.store(0);
-		imgs_total_count.store(0);
 		std::fill(vram_tile_used, vram_tile_used + 768, 0);
 		std::fill(vram_tile_idx, vram_tile_idx + 768, (u16)0xFFFF);
 	}

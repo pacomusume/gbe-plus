@@ -942,7 +942,7 @@ static SDL_Surface* apply_brightness_mod(SDL_Surface* src, float brightness)
 	SDL_BlitSurface(brightnessMod, NULL, alphaCpy, NULL);
 
 	//create pixel values
-	if (brightness < 1)
+	if (brightness < 1.0f)
 	{
 		//create a darken copy
 		c = (u8)(255 * (1.0f - brightness));
@@ -988,10 +988,7 @@ void GB_LCD::process_pending_imgs()
 
 		if (item.imgIdx < (u16)cgfx_stat.imgs.size())
 		{
-			// Free any existing surfaces (should be empty placeholders)
-			for (SDL_Surface* s : cgfx_stat.imgs[item.imgIdx]) SDL_FreeSurface(s);
-			for (SDL_Surface* s : cgfx_stat.himgs[item.imgIdx]) SDL_FreeSurface(s);
-
+			// Slots are always empty placeholders; just install the loaded surfaces
 			cgfx_stat.imgs[item.imgIdx] = std::move(item.imgs);
 			cgfx_stat.himgs[item.imgIdx] = std::move(item.himgs);
 		}
@@ -1013,12 +1010,20 @@ void GB_LCD::load_images_background(
 	std::vector<img_file_task> file_tasks,
 	std::vector<img_brightness_task> bright_tasks)
 {
+	// Return early if there is nothing to do
+	if (file_tasks.empty() && bright_tasks.empty())
+	{
+		cgfx_stat.loading_complete.store(true);
+		return;
+	}
+
 	// Determine max index across all tasks
 	size_t max_idx = 0;
 	for (auto& t : file_tasks) if (t.imgIdx > max_idx) max_idx = t.imgIdx;
 	for (auto& t : bright_tasks) if (t.dstImgIdx > max_idx) max_idx = t.dstImgIdx;
 
-	// Local staging: load into these before pushing to shared queue
+	// Local staging: indices are always sequential (0..max_idx) since they are
+	// assigned as cgfx_stat.imgs.size() incremented by 1 per image during parsing.
 	std::vector<std::vector<SDL_Surface*>> staging_imgs(max_idx + 1);
 	std::vector<std::vector<SDL_Surface*>> staging_himgs(max_idx + 1);
 
@@ -1080,7 +1085,7 @@ void GB_LCD::load_images_background(
 		{
 			if (cgfx_stat.stop_loading.load()) { stopped = true; break; }
 
-			if (task.srcImgIdx > max_idx || staging_imgs[task.srcImgIdx].empty())
+			if (task.srcImgIdx >= (u16)staging_imgs.size() || staging_imgs[task.srcImgIdx].empty())
 			{
 				std::cerr << "[HD Pack] Brightness mod skipped: source index "
 					<< task.srcImgIdx << " not loaded.\n";
@@ -1120,9 +1125,13 @@ void GB_LCD::load_images_background(
 			<< cgfx_stat.imgs_total_count.load() << " item(s) loaded.\n";
 	}
 
-	// Cleanup: free any staging surfaces not moved (stopped early)
-	for (auto& v : staging_imgs) for (SDL_Surface* s : v) SDL_FreeSurface(s);
-	for (auto& v : staging_himgs) for (SDL_Surface* s : v) SDL_FreeSurface(s);
+	// Cleanup: free staging surfaces only if we stopped early (Stage 3 didn't run).
+	// When !stopped, all non-empty vectors were moved into the queue above.
+	if (stopped)
+	{
+		for (auto& v : staging_imgs) for (SDL_Surface* s : v) SDL_FreeSurface(s);
+		for (auto& v : staging_himgs) for (SDL_Surface* s : v) SDL_FreeSurface(s);
+	}
 }
 
 void GB_LCD::new_rendered_screen_data() {
