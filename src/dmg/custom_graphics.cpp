@@ -11,6 +11,8 @@
 
 #include <fstream>
 #include <sstream>
+#include <iostream>
+#include <functional>
 
 #include "common/util.h"
 #include "common/cgfx_common.h"
@@ -19,7 +21,29 @@
 #include "midi_driver.h"
 #include "custom_sound.h"
 
+// Maximum number of images allowed in a single pack (sanity guard)
+static const int MAX_PACK_IMAGES = 2048;
+
 void GB_LCD::clear_manifest() {
+	// Signal any background loader to stop, then wait for it to finish
+	cgfx_stat.stop_loading.store(true);
+	if (cgfx_stat.img_loader_thread.joinable())
+	{
+		cgfx_stat.img_loader_thread.join();
+	}
+
+	// Drain pending queue (surfaces were not yet transferred to main arrays)
+	{
+		std::lock_guard<std::mutex> lock(cgfx_stat.pending_imgs_mutex);
+		while (!cgfx_stat.pending_imgs.empty())
+		{
+			pending_img_result& item = cgfx_stat.pending_imgs.front();
+			for (SDL_Surface* s : item.imgs) SDL_FreeSurface(s);
+			for (SDL_Surface* s : item.himgs) SDL_FreeSurface(s);
+			cgfx_stat.pending_imgs.pop();
+		}
+	}
+
 	cgfx_stat.packVersion = "";
 
 	for (u16 i = 0; i < cgfx_stat.imgs.size(); i++)
@@ -51,6 +75,15 @@ void GB_LCD::clear_manifest() {
 	SDL_FreeSurface(cgfx_stat.brightnessMod);
 	SDL_FreeSurface(cgfx_stat.alphaCpy);
 	SDL_FreeSurface(cgfx_stat.tempStrip);
+	cgfx_stat.brightnessMod = nullptr;
+	cgfx_stat.alphaCpy = nullptr;
+	cgfx_stat.tempStrip = nullptr;
+
+	// Reset async counters
+	cgfx_stat.stop_loading.store(false);
+	cgfx_stat.loading_complete.store(true);
+	cgfx_stat.imgs_loaded_count.store(0);
+	cgfx_stat.imgs_total_count.store(0);
 }
 
 u8 GB_LCD::getOpType(std::string op)
@@ -107,12 +140,12 @@ bool GB_LCD::load_manifest(std::string filename)
 	std::string tagName = "";
 	cgfx_stat.frameCnt = 0;
 
-	//SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
-	//	"Loading HdPack",
-	//	filename.c_str(),
-	//	NULL);
 	bool result = false;
 	cgfx::scaling_factor = 1;
+
+	// Tasks collected during parsing for background loading
+	std::vector<img_file_task> img_file_tasks;
+	std::vector<img_brightness_task> img_brightness_tasks;
 
 	//add build-in condition
 	pack_condition pc;
@@ -182,34 +215,31 @@ bool GB_LCD::load_manifest(std::string filename)
 				else if (tagName == "scale") cgfx::scaling_factor = stoi(util::trimfnc(strRest));
 				else if (tagName == "img")
 				{
-					//load image and make a h flipped copy
-					std::vector<SDL_Surface*> imgs;
-					std::vector<SDL_Surface*> himgs;
-					SDL_Surface* img;
-					pos = strRest.find(",");
-					if (pos != std::string::npos)
+					// Sanity check: guard against unbounded image counts
+					if ((int)cgfx_stat.imgs.size() >= MAX_PACK_IMAGES)
 					{
-						std::string imgname = strRest.substr(0, pos);
-						img = load_pack_image(imgname);
-						imgs.push_back(img);
-						img = h_flip_image(img);
-						himgs.push_back(img);
-						imgname = util::trimfnc(strRest.substr(pos + 1, std::string::npos));
-						img = load_pack_image(imgname);
-						imgs.push_back(img);
-						img = h_flip_image(img);
-						himgs.push_back(img);
+						std::cerr << "[HD Pack] Image count limit (" << MAX_PACK_IMAGES
+							<< ") reached, skipping remaining images.\n";
 					}
 					else
 					{
-						img = load_pack_image(util::trimfnc(strRest));
-						imgs.push_back(img);
-						img = h_flip_image(img);
-						himgs.push_back(img);
+						img_file_task task;
+						task.imgIdx = (u16)cgfx_stat.imgs.size();
+						pos = strRest.find(",");
+						if (pos != std::string::npos)
+						{
+							task.filename1 = util::trimfnc(strRest.substr(0, pos));
+							task.filename2 = util::trimfnc(strRest.substr(pos + 1, std::string::npos));
+						}
+						else
+						{
+							task.filename1 = util::trimfnc(strRest);
+						}
+						imgIdxOffset.push_back(cgfx_stat.imgs.size());
+						cgfx_stat.imgs.push_back({});  // empty placeholder
+						cgfx_stat.himgs.push_back({}); // empty placeholder
+						img_file_tasks.push_back(task);
 					}
-					imgIdxOffset.push_back(cgfx_stat.imgs.size());
-					cgfx_stat.imgs.push_back(imgs);
-					cgfx_stat.himgs.push_back(himgs);
 				}
 				else if (tagName == "tile")
 				{
@@ -266,7 +296,7 @@ bool GB_LCD::load_manifest(std::string filename)
 							pt.brightness = stof(token);
 							break;
 						case 6:
-							pt.default = (token == "Y");
+							pt.isDefault = (token == "Y");
 							break;
 
 						default:
@@ -503,55 +533,18 @@ bool GB_LCD::load_manifest(std::string filename)
 					}
 					if (bg.brightness != 1)
 					{
-						u8 c;
-						u32 brightnessC;
-						SDL_Surface* brightnessMod = SDL_CreateRGBSurfaceWithFormat(0, cgfx_stat.imgs[bg.imgIdx][0]->w, cgfx_stat.imgs[bg.imgIdx][0]->h, 32, SDL_PIXELFORMAT_ARGB8888);
-						SDL_Surface* alphaCpy = SDL_CreateRGBSurfaceWithFormat(0, cgfx_stat.imgs[bg.imgIdx][0]->w, cgfx_stat.imgs[bg.imgIdx][0]->h, 32, SDL_PIXELFORMAT_ARGB8888);
-						SDL_Surface* img = SDL_CreateRGBSurfaceWithFormat(0, cgfx_stat.imgs[bg.imgIdx][0]->w, cgfx_stat.imgs[bg.imgIdx][0]->h, 32, SDL_PIXELFORMAT_ARGB8888);
-
-						SDL_SetSurfaceBlendMode(cgfx_stat.imgs[bg.imgIdx][0], SDL_BLENDMODE_NONE);
-						//make a copy of the alpha values with all pixels white
-						SDL_BlitSurface(cgfx_stat.imgs[bg.imgIdx][0], NULL, alphaCpy, NULL);
-						SDL_FillRect(brightnessMod, NULL, 0xFFFFFFFF);
-						SDL_SetSurfaceBlendMode(brightnessMod, SDL_BLENDMODE_ADD);
-						SDL_BlitSurface(brightnessMod, NULL, alphaCpy, NULL);
-
-						//create pixel values
-						if (bg.brightness < 1)
-						{
-							//create a darken copy
-							c = 255 * (1.0 - bg.brightness);
-							brightnessC = 0x00000000 | c << 24;
-						}
-						else 
-						{
-							//create a brighten copy
-							c = 255 * (bg.brightness - 1.0);
-							brightnessC = 0x00FFFFFF | c << 24;
-						}
-						SDL_FillRect(brightnessMod, NULL, brightnessC);
-						SDL_SetSurfaceBlendMode(brightnessMod, SDL_BLENDMODE_BLEND);
-						SDL_BlitSurface(cgfx_stat.imgs[bg.imgIdx][0], NULL, img, NULL);
-						SDL_BlitSurface(brightnessMod, NULL, img, NULL);
-
-						//merge pixel values to alpha
-						SDL_SetSurfaceBlendMode(img, SDL_BLENDMODE_MOD);
-						SDL_BlitSurface(img, NULL, alphaCpy, NULL);
-
-						//clean up
-						SDL_SetSurfaceBlendMode(cgfx_stat.imgs[bg.imgIdx][0], SDL_BLENDMODE_BLEND);
-						SDL_FreeSurface(img);
-						SDL_FreeSurface(brightnessMod);
-
-						std::vector<SDL_Surface*> imgs;
-						std::vector<SDL_Surface*> himgs;
-						imgs.push_back(alphaCpy);
-						img = h_flip_image(alphaCpy);
-						himgs.push_back(img);
-
-						bg.imgIdx = cgfx_stat.imgs.size();
-						cgfx_stat.imgs.push_back(imgs);
-						cgfx_stat.himgs.push_back(himgs);
+						// Defer brightness modification to background thread.
+						// Pre-allocate a new slot for the modified image.
+						u16 srcIdx = bg.imgIdx;
+						u16 dstIdx = (u16)cgfx_stat.imgs.size();
+						cgfx_stat.imgs.push_back({});  // empty placeholder
+						cgfx_stat.himgs.push_back({}); // empty placeholder
+						bg.imgIdx = dstIdx;
+						img_brightness_task bt;
+						bt.srcImgIdx = srcIdx;
+						bt.dstImgIdx = dstIdx;
+						bt.brightness = bg.brightness;
+						img_brightness_tasks.push_back(bt);
 					}
 					cgfx_stat.bgs[bg.priority].push_back(bg);
 				}
@@ -856,8 +849,6 @@ bool GB_LCD::load_manifest(std::string filename)
 		result = true;
 	}
 
-
-
 	//Initialize HD buffer for CGFX greater that 1:1
 	config::sys_width *= cgfx::scaling_factor;
 	config::sys_height *= cgfx::scaling_factor;
@@ -873,6 +864,23 @@ bool GB_LCD::load_manifest(std::string filename)
 	hdrect.w = cgfx::scaling_factor * 8;
 	hdrect.h = cgfx::scaling_factor;
 	hdsrcrect = hdrect;
+
+	// Launch background thread to load images (avoids blocking main thread)
+	int total_tasks = (int)(img_file_tasks.size() + img_brightness_tasks.size());
+	cgfx_stat.imgs_total_count.store(total_tasks);
+	cgfx_stat.imgs_loaded_count.store(0);
+	cgfx_stat.loading_complete.store(total_tasks == 0);
+
+	if (total_tasks > 0)
+	{
+		std::cout << "[HD Pack] Starting async load: " << img_file_tasks.size()
+			<< " image file(s), " << img_brightness_tasks.size()
+			<< " brightness mod(s).\n";
+		std::string folder = get_game_cgfx_folder();
+		cgfx_stat.img_loader_thread = std::thread(
+			&GB_LCD::load_images_background, this,
+			folder, img_file_tasks, img_brightness_tasks);
+	}
 
 	return result;
 }
@@ -905,6 +913,225 @@ SDL_Surface* GB_LCD::h_flip_image(SDL_Surface* s)
 	SDL_UnlockSurface(s);
 
 	return r;
+}
+
+/****** Apply brightness modification to a surface, return modified copy ******/
+static SDL_Surface* apply_brightness_mod(SDL_Surface* src, float brightness)
+{
+	if (!src) return nullptr;
+
+	u8 c;
+	u32 brightnessC;
+	SDL_Surface* brightnessMod = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 32, SDL_PIXELFORMAT_ARGB8888);
+	SDL_Surface* alphaCpy = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 32, SDL_PIXELFORMAT_ARGB8888);
+	SDL_Surface* img = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 32, SDL_PIXELFORMAT_ARGB8888);
+
+	if (!brightnessMod || !alphaCpy || !img)
+	{
+		SDL_FreeSurface(brightnessMod);
+		SDL_FreeSurface(alphaCpy);
+		SDL_FreeSurface(img);
+		return nullptr;
+	}
+
+	SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_NONE);
+	//make a copy of the alpha values with all pixels white
+	SDL_BlitSurface(src, NULL, alphaCpy, NULL);
+	SDL_FillRect(brightnessMod, NULL, 0xFFFFFFFF);
+	SDL_SetSurfaceBlendMode(brightnessMod, SDL_BLENDMODE_ADD);
+	SDL_BlitSurface(brightnessMod, NULL, alphaCpy, NULL);
+
+	//create pixel values
+	if (brightness < 1.0f)
+	{
+		//create a darken copy
+		c = (u8)(255 * (1.0f - brightness));
+		brightnessC = 0x00000000u | ((u32)c << 24);
+	}
+	else
+	{
+		//create a brighten copy
+		c = (u8)(255 * (brightness - 1.0f));
+		brightnessC = 0x00FFFFFFu | ((u32)c << 24);
+	}
+	SDL_FillRect(brightnessMod, NULL, brightnessC);
+	SDL_SetSurfaceBlendMode(brightnessMod, SDL_BLENDMODE_BLEND);
+	SDL_BlitSurface(src, NULL, img, NULL);
+	SDL_BlitSurface(brightnessMod, NULL, img, NULL);
+
+	//merge pixel values to alpha
+	SDL_SetSurfaceBlendMode(img, SDL_BLENDMODE_MOD);
+	SDL_BlitSurface(img, NULL, alphaCpy, NULL);
+
+	//restore blend mode
+	SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_BLEND);
+	SDL_FreeSurface(img);
+	SDL_FreeSurface(brightnessMod);
+
+	return alphaCpy; // caller owns this surface
+}
+
+/****** Install any images loaded by the background thread (call from main thread each frame) ******/
+void GB_LCD::process_pending_imgs()
+{
+	if (cgfx_stat.pending_imgs.empty()) return;
+
+	std::lock_guard<std::mutex> lock(cgfx_stat.pending_imgs_mutex);
+
+	// Process up to a bounded number per frame to avoid stalling
+	const int max_per_frame = 16;
+	int processed = 0;
+
+	while (!cgfx_stat.pending_imgs.empty() && processed < max_per_frame)
+	{
+		pending_img_result& item = cgfx_stat.pending_imgs.front();
+
+		if (item.imgIdx < (u16)cgfx_stat.imgs.size())
+		{
+			// Slots are always empty placeholders; just install the loaded surfaces
+			cgfx_stat.imgs[item.imgIdx] = std::move(item.imgs);
+			cgfx_stat.himgs[item.imgIdx] = std::move(item.himgs);
+		}
+		else
+		{
+			// Index out of range: discard to avoid memory leak
+			for (SDL_Surface* s : item.imgs) SDL_FreeSurface(s);
+			for (SDL_Surface* s : item.himgs) SDL_FreeSurface(s);
+		}
+
+		cgfx_stat.pending_imgs.pop();
+		processed++;
+	}
+}
+
+/****** Background thread: loads image files and processes brightness mods ******/
+void GB_LCD::load_images_background(
+	std::string folder,
+	std::vector<img_file_task> file_tasks,
+	std::vector<img_brightness_task> bright_tasks)
+{
+	// Return early if there is nothing to do
+	if (file_tasks.empty() && bright_tasks.empty())
+	{
+		cgfx_stat.loading_complete.store(true);
+		return;
+	}
+
+	// Determine max index across all tasks
+	size_t max_idx = 0;
+	for (auto& t : file_tasks) if (t.imgIdx > max_idx) max_idx = t.imgIdx;
+	for (auto& t : bright_tasks) if (t.dstImgIdx > max_idx) max_idx = t.dstImgIdx;
+
+	// Local staging: indices are always sequential (0..max_idx) since they are
+	// assigned as cgfx_stat.imgs.size() incremented by 1 per image during parsing.
+	std::vector<std::vector<SDL_Surface*>> staging_imgs(max_idx + 1);
+	std::vector<std::vector<SDL_Surface*>> staging_himgs(max_idx + 1);
+
+	bool stopped = false;
+
+	// Stage 1: Load image files from disk
+	for (auto& task : file_tasks)
+	{
+		if (cgfx_stat.stop_loading.load()) { stopped = true; break; }
+
+		std::string path1 = folder + task.filename1;
+		SDL_Surface* raw = IMG_Load(path1.c_str());
+		if (!raw)
+		{
+			std::cerr << "[HD Pack] Failed to load: " << path1 << "\n";
+			cgfx_stat.imgs_loaded_count.fetch_add(1);
+			continue;
+		}
+		SDL_Surface* img = SDL_ConvertSurfaceFormat(raw, SDL_PIXELFORMAT_ARGB8888, 0);
+		SDL_FreeSurface(raw);
+		if (!img)
+		{
+			std::cerr << "[HD Pack] Format conversion failed: " << path1 << "\n";
+			cgfx_stat.imgs_loaded_count.fetch_add(1);
+			continue;
+		}
+
+		staging_imgs[task.imgIdx].push_back(img);
+		staging_himgs[task.imgIdx].push_back(h_flip_image(img));
+
+		// Load optional second image (two-surface <img> entries)
+		if (!task.filename2.empty())
+		{
+			std::string path2 = folder + task.filename2;
+			raw = IMG_Load(path2.c_str());
+			if (!raw)
+			{
+				std::cerr << "[HD Pack] Failed to load: " << path2 << "\n";
+			}
+			else
+			{
+				SDL_Surface* img2 = SDL_ConvertSurfaceFormat(raw, SDL_PIXELFORMAT_ARGB8888, 0);
+				SDL_FreeSurface(raw);
+				if (img2)
+				{
+					staging_imgs[task.imgIdx].push_back(img2);
+					staging_himgs[task.imgIdx].push_back(h_flip_image(img2));
+				}
+			}
+		}
+
+		cgfx_stat.imgs_loaded_count.fetch_add(1);
+	}
+
+	// Stage 2: Apply brightness modifications using already-loaded images
+	if (!stopped)
+	{
+		for (auto& task : bright_tasks)
+		{
+			if (cgfx_stat.stop_loading.load()) { stopped = true; break; }
+
+			if (task.srcImgIdx >= (u16)staging_imgs.size() || staging_imgs[task.srcImgIdx].empty())
+			{
+				std::cerr << "[HD Pack] Brightness mod skipped: source index "
+					<< task.srcImgIdx << " not loaded.\n";
+				cgfx_stat.imgs_loaded_count.fetch_add(1);
+				continue;
+			}
+
+			SDL_Surface* modded = apply_brightness_mod(staging_imgs[task.srcImgIdx][0], task.brightness);
+			if (modded)
+			{
+				staging_imgs[task.dstImgIdx].push_back(modded);
+				staging_himgs[task.dstImgIdx].push_back(h_flip_image(modded));
+			}
+
+			cgfx_stat.imgs_loaded_count.fetch_add(1);
+		}
+	}
+
+	// Stage 3: Push all results to shared queue for main thread to install
+	if (!stopped)
+	{
+		std::lock_guard<std::mutex> lock(cgfx_stat.pending_imgs_mutex);
+		for (size_t i = 0; i <= max_idx; i++)
+		{
+			if (!staging_imgs[i].empty())
+			{
+				pending_img_result r;
+				r.imgIdx = (u16)i;
+				r.imgs = std::move(staging_imgs[i]);
+				r.himgs = std::move(staging_himgs[i]);
+				cgfx_stat.pending_imgs.push(std::move(r));
+			}
+		}
+		cgfx_stat.loading_complete.store(true);
+		std::cout << "[HD Pack] Async load complete: "
+			<< cgfx_stat.imgs_loaded_count.load() << "/"
+			<< cgfx_stat.imgs_total_count.load() << " item(s) loaded.\n";
+	}
+
+	// Cleanup: free staging surfaces only if we stopped early (Stage 3 didn't run).
+	// When !stopped, all non-empty vectors were moved into the queue above.
+	if (stopped)
+	{
+		for (auto& v : staging_imgs) for (SDL_Surface* s : v) SDL_FreeSurface(s);
+		for (auto& v : staging_himgs) for (SDL_Surface* s : v) SDL_FreeSurface(s);
+	}
 }
 
 void GB_LCD::new_rendered_screen_data() {

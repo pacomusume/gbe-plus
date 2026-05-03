@@ -43,6 +43,10 @@ class GB_LCD
 
 	SDL_Surface* load_pack_image(std::string filename);
 	SDL_Surface* h_flip_image(SDL_Surface* s);
+	void process_pending_imgs();
+	void load_images_background(std::string folder,
+		std::vector<img_file_task> file_tasks,
+		std::vector<img_brightness_task> bright_tasks);
 	virtual pack_tile* get_tile_match(tile_strip* s, u16 cscanline) = 0;
 	bool check_screen_tile_at_loc(SDL_Rect* loc, pack_condition* c);
 	bool check_line_tile_at_loc(std::vector <tile_strip>* scanline, SDL_Rect* loc, pack_condition* c);

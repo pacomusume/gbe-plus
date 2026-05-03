@@ -15,6 +15,10 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <queue>
+#include <thread>
+#include <mutex>
+#include <atomic>
 
 #include "common/common.h"
 
@@ -92,7 +96,7 @@ struct pack_tile
 	u16 x;
 	u16 y;
 	float brightness;
-	bool default;
+	bool isDefault;
 };
 
 struct pack_background
@@ -108,6 +112,30 @@ struct pack_background
 };
 
 
+
+// Holds a decoded image pair ready to be installed into cgfx_stat.imgs/himgs
+struct pending_img_result
+{
+	u16 imgIdx;
+	std::vector<SDL_Surface*> imgs;
+	std::vector<SDL_Surface*> himgs;
+};
+
+// Task: load one or two image files and store surfaces at imgIdx
+struct img_file_task
+{
+	u16 imgIdx;
+	std::string filename1;
+	std::string filename2; // empty if only one file
+};
+
+// Task: apply brightness modification to a loaded image
+struct img_brightness_task
+{
+	u16 srcImgIdx; // source image index
+	u16 dstImgIdx; // destination index for modified image
+	float brightness;
+};
 
 struct dmg_cgfx_data
 { 
@@ -126,6 +154,24 @@ struct dmg_cgfx_data
 	u8 vram_tile_used[768];
 	u16 vram_tile_idx[768];
 	rendered_screen screen_data;
+
+	// Async image loading state
+	std::thread img_loader_thread;
+	std::mutex pending_imgs_mutex;
+	std::queue<pending_img_result> pending_imgs;
+	std::atomic<bool> stop_loading;
+	std::atomic<bool> loading_complete;
+	std::atomic<int> imgs_loaded_count;
+	std::atomic<int> imgs_total_count;
+
+	dmg_cgfx_data()
+		: brightnessMod(nullptr), alphaCpy(nullptr), tempStrip(nullptr), frameCnt(0),
+		  stop_loading(false), loading_complete(true),
+		  imgs_loaded_count(0), imgs_total_count(0)
+	{
+		std::fill(vram_tile_used, vram_tile_used + 768, 0);
+		std::fill(vram_tile_idx, vram_tile_idx + 768, (u16)0xFFFF);
+	}
 };
 
 #endif // GB_CGFX_DATA

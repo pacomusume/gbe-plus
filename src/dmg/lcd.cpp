@@ -675,7 +675,7 @@ pack_tile* DMG_LCD::get_tile_match(tile_strip* s, u16 cscanline)
 		for (u16 j = 0; j < cgfx_stat.screen_data.rendered_tile[s->pattern_id].pack_tile_match.size(); j++)
 		{
 			hdTile = &(cgfx_stat.tiles[cgfx_stat.screen_data.rendered_tile[s->pattern_id].pack_tile_match[j]]);
-			if (hdTile->palette[0] == cgfx_stat.screen_data.rendered_palette[s->palette_id].code || (hdTile->default && useDefault))
+			if (hdTile->palette[0] == cgfx_stat.screen_data.rendered_palette[s->palette_id].code || (hdTile->isDefault && useDefault))
 			{
 				//check for conditions
 				bool allCondPassed = true;
@@ -747,7 +747,7 @@ pack_tile* GBC_LCD::get_tile_match(tile_strip* s, u16 cscanline)
 				&& hdTile->palette[2] == cgfx_stat.screen_data.rendered_palette[s->palette_id].colour[2]
 				&& hdTile->palette[3] == cgfx_stat.screen_data.rendered_palette[s->palette_id].colour[3]
 				)
-				|| (hdTile->default && useDefault))
+				|| (hdTile->isDefault && useDefault))
 			{
 				//check for conditions
 				bool allCondPassed = true;
@@ -843,6 +843,9 @@ void DMG_LCD::render_bg_scanline(bool raw)
 		if (!raw) hdTile = get_tile_match(&p, lcd_stat.renderY);
 		else hdTile = NULL;
 
+		// Fall back to original tile if HD image hasn't loaded yet
+		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
+
 		if (hdTile)
 		{
 			hdrect.x = srcrect.x;
@@ -898,6 +901,9 @@ void GBC_LCD::render_bg_scanline(bool raw)
 		//look for hd 
 		if (!raw) hdTile = get_tile_match(&p, lcd_stat.renderY);
 		else hdTile = NULL;
+
+		// Fall back to original tile if HD image hasn't loaded yet
+		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -967,6 +973,9 @@ void DMG_LCD::render_win_scanline(bool raw)
 		if (!raw) hdTile = get_tile_match(&p, lcd_stat.renderY);
 		else hdTile = NULL;
 
+		// Fall back to original tile if HD image hasn't loaded yet
+		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
+
 		if (hdTile)
 		{
 			hdrect.x = srcrect.x;
@@ -1031,6 +1040,9 @@ void GBC_LCD::render_win_scanline(bool raw)
 		//look for hd 
 		if (!raw) hdTile = get_tile_match(&p, lcd_stat.renderY);
 		else hdTile = NULL;
+
+		// Fall back to original tile if HD image hasn't loaded yet
+		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -1129,6 +1141,9 @@ void DMG_LCD::render_obj_scanline(bool raw)
 		if (!raw) hdTile = get_tile_match(&p, lcd_stat.renderY);
 		else hdTile = NULL;
 
+		// Fall back to original tile if HD image hasn't loaded yet
+		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
+
 		if (hdTile)
 		{
 			hdrect.x = p.x * cgfx::scaling_factor;
@@ -1195,6 +1210,9 @@ void GBC_LCD::render_obj_scanline(bool raw)
 		//look for hd 
 		if (!raw) hdTile = get_tile_match(&p, lcd_stat.renderY);
 		else hdTile = NULL;
+
+		// Fall back to original tile if HD image hasn't loaded yet
+		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -1951,6 +1969,9 @@ void GB_LCD::render_full_screen() {
 	//resolve global conditions
 	resolve_global_condition();
 
+	// Install any images that finished loading in the background thread
+	process_pending_imgs();
+
 	for (lcd_stat.renderY = 0; lcd_stat.renderY < 144; lcd_stat.renderY++)
 	{
 		srcrect.y = cgfx::scaling_factor * lcd_stat.renderY;
@@ -1980,7 +2001,7 @@ void GB_LCD::render_full_screen() {
 					if (cgfx_stat.bgs[i][n].condApps[j].negate) matchResult = !matchResult;
 					allCondPassed = allCondPassed && matchResult;
 				}
-				if (allCondPassed)
+				if (allCondPassed && !cgfx_stat.imgs[cgfx_stat.bgs[i][n].imgIdx].empty())
 				{
 					SDL_Rect srcR;
 					srcR.x = cgfx_stat.bgs[i][n].offsetX + (lcd_stat.bg_scroll_x * cgfx_stat.bgs[i][n].hscroll * cgfx::scaling_factor);
