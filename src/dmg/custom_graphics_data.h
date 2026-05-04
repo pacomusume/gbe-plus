@@ -163,11 +163,14 @@ struct dmg_cgfx_data
 	std::atomic<bool> loading_complete;
 	std::atomic<int> imgs_loaded_count;
 	std::atomic<int> imgs_total_count;
+	// Generation counter: incremented each time a new load session starts or is cancelled.
+	// Threads capture their generation at launch; a mismatch means the session was invalidated.
+	std::atomic<u32> load_gen;
 
 	dmg_cgfx_data()
 		: brightnessMod(nullptr), alphaCpy(nullptr), tempStrip(nullptr), frameCnt(0),
 		  stop_loading(false), loading_complete(true),
-		  imgs_loaded_count(0), imgs_total_count(0)
+		  imgs_loaded_count(0), imgs_total_count(0), load_gen(0)
 	{
 		std::fill(vram_tile_used, vram_tile_used + 768, 0);
 		std::fill(vram_tile_idx, vram_tile_idx + 768, (u16)0xFFFF);

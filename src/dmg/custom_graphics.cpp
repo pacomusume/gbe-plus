@@ -25,11 +25,14 @@
 static const int MAX_PACK_IMAGES = 2048;
 
 void GB_LCD::clear_manifest() {
-	// Signal any background loader to stop, then wait for it to finish
+	// Signal the background loader to stop and invalidate its session.
+	// Detach instead of join to avoid blocking the calling (UI) thread indefinitely.
+	// The thread will exit shortly because it checks stop_loading and load_gen between images.
 	cgfx_stat.stop_loading.store(true);
+	cgfx_stat.load_gen.fetch_add(1);
 	if (cgfx_stat.img_loader_thread.joinable())
 	{
-		cgfx_stat.img_loader_thread.join();
+		cgfx_stat.img_loader_thread.detach();
 	}
 
 	// Drain pending queue (surfaces were not yet transferred to main arrays)
@@ -974,12 +977,12 @@ static SDL_Surface* apply_brightness_mod(SDL_Surface* src, float brightness)
 /****** Install any images loaded by the background thread (call from main thread each frame) ******/
 void GB_LCD::process_pending_imgs()
 {
-	if (cgfx_stat.pending_imgs.empty()) return;
-
 	std::lock_guard<std::mutex> lock(cgfx_stat.pending_imgs_mutex);
 
+	if (cgfx_stat.pending_imgs.empty()) return;
+
 	// Process up to a bounded number per frame to avoid stalling
-	const int max_per_frame = 16;
+	const int max_per_frame = 8;
 	int processed = 0;
 
 	while (!cgfx_stat.pending_imgs.empty() && processed < max_per_frame)
@@ -1010,6 +1013,10 @@ void GB_LCD::load_images_background(
 	std::vector<img_file_task> file_tasks,
 	std::vector<img_brightness_task> bright_tasks)
 {
+	// Capture our generation at thread start. If load_gen changes (session cancelled),
+	// we abort early so the new session can proceed cleanly.
+	const u32 my_gen = cgfx_stat.load_gen.load();
+
 	// Return early if there is nothing to do
 	if (file_tasks.empty() && bright_tasks.empty())
 	{
@@ -1032,7 +1039,7 @@ void GB_LCD::load_images_background(
 	// Stage 1: Load image files from disk
 	for (auto& task : file_tasks)
 	{
-		if (cgfx_stat.stop_loading.load()) { stopped = true; break; }
+		if (cgfx_stat.stop_loading.load() || cgfx_stat.load_gen.load() != my_gen) { stopped = true; break; }
 
 		std::string path1 = folder + task.filename1;
 		SDL_Surface* raw = IMG_Load(path1.c_str());
@@ -1083,7 +1090,7 @@ void GB_LCD::load_images_background(
 	{
 		for (auto& task : bright_tasks)
 		{
-			if (cgfx_stat.stop_loading.load()) { stopped = true; break; }
+			if (cgfx_stat.stop_loading.load() || cgfx_stat.load_gen.load() != my_gen) { stopped = true; break; }
 
 			if (task.srcImgIdx >= (u16)staging_imgs.size() || staging_imgs[task.srcImgIdx].empty())
 			{
@@ -1104,29 +1111,44 @@ void GB_LCD::load_images_background(
 		}
 	}
 
-	// Stage 3: Push all results to shared queue for main thread to install
+	// Stage 3: Push results to shared queue one item at a time so the main thread
+	// is never blocked waiting for the entire batch to be pushed under a single lock.
 	if (!stopped)
 	{
-		std::lock_guard<std::mutex> lock(cgfx_stat.pending_imgs_mutex);
 		for (size_t i = 0; i <= max_idx; i++)
 		{
+			// Check both stop signal and generation before each push
+			if (cgfx_stat.stop_loading.load() || cgfx_stat.load_gen.load() != my_gen)
+			{
+				stopped = true;
+				break;
+			}
+
 			if (!staging_imgs[i].empty())
 			{
 				pending_img_result r;
 				r.imgIdx = (u16)i;
 				r.imgs = std::move(staging_imgs[i]);
 				r.himgs = std::move(staging_himgs[i]);
-				cgfx_stat.pending_imgs.push(std::move(r));
+				{
+					std::lock_guard<std::mutex> lock(cgfx_stat.pending_imgs_mutex);
+					cgfx_stat.pending_imgs.push(std::move(r));
+				}
 			}
 		}
-		cgfx_stat.loading_complete.store(true);
-		std::cout << "[HD Pack] Async load complete: "
-			<< cgfx_stat.imgs_loaded_count.load() << "/"
-			<< cgfx_stat.imgs_total_count.load() << " item(s) loaded.\n";
+
+		if (!stopped)
+		{
+			cgfx_stat.loading_complete.store(true);
+			std::cout << "[HD Pack] Async load complete: "
+				<< cgfx_stat.imgs_loaded_count.load() << "/"
+				<< cgfx_stat.imgs_total_count.load() << " item(s) loaded.\n";
+		}
 	}
 
-	// Cleanup: free staging surfaces only if we stopped early (Stage 3 didn't run).
-	// When !stopped, all non-empty vectors were moved into the queue above.
+	// Cleanup: free any staging surfaces that were not moved into the queue.
+	// When Stage 3 ran to completion without stopping, all non-empty vectors were moved
+	// into the queue already (move leaves them empty), so this is a no-op in that case.
 	if (stopped)
 	{
 		for (auto& v : staging_imgs) for (SDL_Surface* s : v) SDL_FreeSurface(s);
