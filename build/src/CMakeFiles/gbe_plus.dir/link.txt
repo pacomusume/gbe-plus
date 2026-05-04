@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -rdynamic -Wl,--dependency-file=CMakeFiles/gbe_plus.dir/link.d CMakeFiles/gbe_plus.dir/main.cpp.o -o gbe_plus  common/libcommon.a gba/libgba.a dmg/libdmg.a sgb/libsgb.a nds/libnds.a min/libmin.a -Wl,-Bstatic -lSDL2main -Wl,-Bdynamic -lSDL2 common/libcommon.a -Wl,-Bstatic -lSDL2main -Wl,-Bdynamic -lSDL2
