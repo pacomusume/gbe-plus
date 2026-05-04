@@ -11,6 +11,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <climits>
 
 #include "common/hash.h"
 #include "common/util.h"
@@ -20,6 +21,9 @@
 /****** Loads the manifest file ******/
 bool DMG_LCD::load_manifest(std::string filename) 
 {
+	//Stop any previously running background loader before clearing shared state
+	stop_image_loading();
+
 	std::ifstream file(filename.c_str(), std::ios::in); 
 	std::string input_line = "";
 	std::string line_char = "";
@@ -46,6 +50,11 @@ bool DMG_LCD::load_manifest(std::string filename)
 	cgfx_stat.obj_pixel_data.clear();
 	cgfx_stat.bg_pixel_data.clear();
 	cgfx_stat.meta_pixel_data.clear();
+
+	//Clear async loader state
+	cgfx_stat.pending_tasks.clear();
+	cgfx_stat.obj_img_ready.clear();
+	cgfx_stat.bg_img_ready.clear();
 
 	if(!file.is_open())
 	{
@@ -187,7 +196,16 @@ bool DMG_LCD::load_manifest(std::string filename)
 				}
 
 				//Load image based on filename and hash type
-				if(!load_image_data()) { return false; }
+			//Instead of loading synchronously, queue a task for the background loader
+			//Types 3 and 30 are placeholders that have no m_id entry; skip them.
+			if((type_byte != 3) && (type_byte != 30) && !cgfx_stat.m_id.empty())
+			{
+				cgfx_load_task task;
+				task.file_idx = (u32)(cgfx_stat.m_files.size() - 1);
+				task.is_obj = (type_byte < 10);
+				task.img_idx = cgfx_stat.m_id.back();
+				cgfx_stat.pending_tasks.push_back(task);
+			}
 
 				//EXT_VRAM_ADDR
 				if(vram_test)
@@ -252,6 +270,20 @@ bool DMG_LCD::load_manifest(std::string filename)
 	}
 
 	std::cout<<"CGFX::" << filename << " loaded successfully\n"; 
+
+	//Pre-allocate pixel data slots so the background thread can fill them in order
+	cgfx_stat.obj_pixel_data.resize(cgfx_stat.obj_hash_list.size());
+	cgfx_stat.bg_pixel_data.resize(cgfx_stat.bg_hash_list.size());
+	cgfx_stat.obj_img_ready.assign(cgfx_stat.obj_hash_list.size(), false);
+	cgfx_stat.bg_img_ready.assign(cgfx_stat.bg_hash_list.size(), false);
+
+	//Start the background loader thread if there are tasks
+	if(!cgfx_stat.pending_tasks.empty())
+	{
+		cgfx_stat.stop_loader.store(false);
+		cgfx_stat.loader_active.store(true);
+		cgfx_stat.loader_thread = std::thread([this]() { load_images_background(); });
+	}
 
 	return true;
 }
@@ -520,6 +552,13 @@ void DMG_LCD::dump_dmg_obj(u8 obj_index)
 	cgfx_stat.obj_hash_list.push_back(final_hash);
 
 	obj_dump = SDL_CreateRGBSurface(SDL_SWSURFACE, 8, obj_height, 32, 0, 0, 0, 0);
+
+	if(obj_dump == NULL)
+	{
+		std::cout<<"LCD::Error - Could not create surface for OBJ dump\n";
+		cgfx::last_added = false;
+		return;
+	}
 		
 	std::string dump_file =  "";
 	if(cgfx::dump_name.empty()) { dump_file = config::data_path + cgfx::dump_obj_path + final_hash + ".bmp"; }
@@ -676,6 +715,13 @@ void DMG_LCD::dump_gbc_obj(u8 obj_index)
 
 	obj_dump = SDL_CreateRGBSurface(SDL_SWSURFACE, 8, obj_height, 32, 0, 0, 0, 0);
 
+	if(obj_dump == NULL)
+	{
+		std::cout<<"LCD::Error - Could not create surface for GBC OBJ dump\n";
+		cgfx::last_added = false;
+		return;
+	}
+
 	std::string dump_file =  "";
 	if(cgfx::dump_name.empty()) { dump_file = config::data_path + cgfx::dump_obj_path + final_hash + ".bmp"; }
 	else { dump_file = config::data_path + cgfx::dump_obj_path + cgfx::dump_name; }
@@ -795,6 +841,13 @@ void DMG_LCD::dump_dmg_bg(u16 bg_index)
 	cgfx_stat.bg_hash_list.push_back(final_hash);
 
 	bg_dump = SDL_CreateRGBSurface(SDL_SWSURFACE, 8, 8, 32, 0, 0, 0, 0);
+
+	if(bg_dump == NULL)
+	{
+		std::cout<<"LCD::Error - Could not create surface for DMG BG dump\n";
+		cgfx::last_added = false;
+		return;
+	}
 
 	std::string dump_file =  "";
 	if(cgfx::dump_name.empty()) { dump_file = config::data_path + cgfx::dump_bg_path + final_hash + ".bmp"; }
@@ -941,6 +994,13 @@ void DMG_LCD::dump_gbc_bg(u16 bg_index)
 	cgfx_stat.bg_hash_list.push_back(final_hash);
 
 	bg_dump = SDL_CreateRGBSurface(SDL_SWSURFACE, 8, 8, 32, 0, 0, 0, 0);
+
+	if(bg_dump == NULL)
+	{
+		std::cout<<"LCD::Error - Could not create surface for GBC BG dump\n";
+		cgfx::last_added = false;
+		return;
+	}
 
 	std::string dump_file =  "";
 	if(cgfx::dump_name.empty()) { dump_file = config::data_path + cgfx::dump_bg_path + final_hash + ".bmp"; }
@@ -1245,14 +1305,14 @@ bool DMG_LCD::has_hash(u16 addr, std::string hash)
 		if(cgfx_stat.m_vram_addr[vram_index].find(hash) == cgfx_stat.m_vram_addr[vram_index].end())
 		{
 			cgfx_stat.last_id = cgfx_stat.m_hashes[hash];
-			return true;
+			match = true;
 		}
 		
 		//Check VRAM addr requirement, if applicable
 		else
 		{
 			cgfx_stat.last_id = cgfx_stat.m_vram_addr[vram_index][hash];
-			return true;
+			match = true;
 		}
 	}
 
@@ -1265,7 +1325,7 @@ bool DMG_LCD::has_hash(u16 addr, std::string hash)
 			u32 id = cgfx_stat.m_hashes_raw[vram_hash];
 
 			cgfx_stat.last_id = id;
-			return true;
+			match = true;
 		}
 
 		else
@@ -1275,7 +1335,39 @@ bool DMG_LCD::has_hash(u16 addr, std::string hash)
 			if(cgfx_stat.m_auto_bright[id] == 1)
 			{
 				cgfx_stat.last_id = id;
-				return true;
+				match = true;
+			}
+		}
+	}
+
+	//Validate that the matched image has actually been installed by the background loader.
+	//If not, fall back to original rendering so no tile is garbled or out-of-bounds.
+	if(match)
+	{
+		u32 lid = cgfx_stat.last_id;
+
+		if(lid >= cgfx_stat.m_id.size() || lid >= cgfx_stat.m_types.size())
+		{
+			return false;
+		}
+
+		u32 img_idx = cgfx_stat.m_id[lid];
+		u8 type = cgfx_stat.m_types[lid];
+
+		if(type < 10)
+		{
+			//OBJ: check readiness
+			if(img_idx >= cgfx_stat.obj_img_ready.size() || !cgfx_stat.obj_img_ready[img_idx])
+			{
+				return false;
+			}
+		}
+		else
+		{
+			//BG: check readiness
+			if(img_idx >= cgfx_stat.bg_img_ready.size() || !cgfx_stat.bg_img_ready[img_idx])
+			{
+				return false;
 			}
 		}
 	}
@@ -1505,4 +1597,213 @@ void DMG_LCD::invalidate_cgfx()
 			if(brightness < cgfx_stat.obj_pal_min[y]) { cgfx_stat.obj_pal_min[y] = brightness; }
 		}
 	}
+}
+
+/****** Background thread: loads and decodes pending image tasks ******/
+void DMG_LCD::load_images_background()
+{
+	for(size_t i = 0; i < cgfx_stat.pending_tasks.size(); i++)
+	{
+		if(cgfx_stat.stop_loader.load()) { break; }
+
+		const cgfx_load_task& task = cgfx_stat.pending_tasks[i];
+		const std::string& orig_name = cgfx_stat.m_files[task.file_idx];
+		std::string filepath = config::data_path + orig_name;
+
+		SDL_Surface* source = SDL_LoadBMP(filepath.c_str());
+		std::vector<u32> pixels;
+		bool success = false;
+
+		if(source != NULL)
+		{
+			int bpp = source->format->BitsPerPixel;
+
+			if(bpp == 24 && (source->w % 8) == 0 && (source->h % 8) == 0)
+			{
+				u8* pixel_data = (u8*)source->pixels;
+
+				for(int a = 0, b = 0; a < (source->w * source->h); a++, b += 3)
+				{
+					pixels.push_back(0xFF000000 | (pixel_data[b + 2] << 16) | (pixel_data[b + 1] << 8) | pixel_data[b]);
+				}
+
+				success = true;
+			}
+			else
+			{
+				std::cout<<"GBE::CGFX - " << filepath << " format invalid (bpp=" << bpp
+				         << " w=" << source->w << " h=" << source->h << ")\n";
+			}
+
+			SDL_FreeSurface(source);
+		}
+		else
+		{
+			//Attempt to resolve as a metatile sub-image
+			bool is_bg = false;
+			success = compute_meta_pixels(orig_name, pixels, is_bg);
+
+			if(!success)
+			{
+				std::cout<<"GBE::CGFX - Could not load " << filepath << "\n";
+			}
+		}
+
+		if(success && !pixels.empty())
+		{
+			cgfx_decoded_img decoded;
+			decoded.pixels = std::move(pixels);
+			decoded.is_obj = task.is_obj;
+			decoded.img_idx = task.img_idx;
+
+			std::lock_guard<std::mutex> lock(cgfx_stat.decoded_mutex);
+			cgfx_stat.decoded_queue.push(std::move(decoded));
+		}
+	}
+
+	cgfx_stat.loader_active.store(false);
+}
+
+/****** Install decoded images from the background thread (call once per frame on main thread) ******/
+void DMG_LCD::process_pending_imgs(int batch_size)
+{
+	std::lock_guard<std::mutex> lock(cgfx_stat.decoded_mutex);
+
+	for(int i = 0; i < batch_size && !cgfx_stat.decoded_queue.empty(); i++)
+	{
+		cgfx_decoded_img& decoded = cgfx_stat.decoded_queue.front();
+
+		if(decoded.is_obj && decoded.img_idx < cgfx_stat.obj_pixel_data.size())
+		{
+			cgfx_stat.obj_pixel_data[decoded.img_idx] = std::move(decoded.pixels);
+			cgfx_stat.obj_img_ready[decoded.img_idx] = true;
+		}
+		else if(!decoded.is_obj && decoded.img_idx < cgfx_stat.bg_pixel_data.size())
+		{
+			cgfx_stat.bg_pixel_data[decoded.img_idx] = std::move(decoded.pixels);
+			cgfx_stat.bg_img_ready[decoded.img_idx] = true;
+		}
+
+		cgfx_stat.decoded_queue.pop();
+	}
+}
+
+/****** Stop the background image loader and drain the decoded queue ******/
+void DMG_LCD::stop_image_loading()
+{
+	if(!cgfx_stat.loader_active.load() && !cgfx_stat.loader_thread.joinable()) { return; }
+
+	//Signal the background thread to stop
+	cgfx_stat.stop_loader.store(true);
+
+	//Wait up to 250 ms for the thread to finish processing the current image
+	u32 wait_start = SDL_GetTicks();
+
+	while(cgfx_stat.loader_active.load() && (SDL_GetTicks() - wait_start) < 250)
+	{
+		SDL_Delay(5);
+	}
+
+	if(cgfx_stat.loader_thread.joinable())
+	{
+		if(!cgfx_stat.loader_active.load())
+		{
+			cgfx_stat.loader_thread.join();
+		}
+		else
+		{
+			//Timed out: detach so the main thread is not blocked indefinitely
+			cgfx_stat.loader_thread.detach();
+		}
+	}
+
+	//Drain whatever the background thread had already decoded
+	process_pending_imgs(INT_MAX);
+
+	//Reset the stop flag for potential future re-use
+	cgfx_stat.stop_loader.store(false);
+}
+
+/****** Compute pixels for a manifest entry that references a metatile sub-image ******/
+/****** Pure read-only version of find_meta_data() suitable for the background thread ******/
+bool DMG_LCD::compute_meta_pixels(const std::string& orig_name, std::vector<u32>& out_pixels, bool& out_is_bg)
+{
+	std::string base_name = "";
+	std::string base_number = "";
+	bool is_meta_tile = false;
+	u32 meta_tile_number = 0;
+
+	//Parse the entry in reverse.
+	//1st underscore separates the metatile number; everything before is the base name.
+	for(int x = orig_name.size() - 1; x >= 0; x--)
+	{
+		std::string temp = "";
+		temp += orig_name[x];
+
+		if(temp == "_") { is_meta_tile = true; }
+
+		if(is_meta_tile) { base_name = temp + base_name; }
+		else { base_number = temp + base_number; }
+	}
+
+	//Chop off the trailing underscore
+	if(base_name.size() > 0) { base_name = base_name.substr(0, base_name.size() - 1); }
+
+	if(!is_meta_tile) { return false; }
+
+	util::from_str(base_number, meta_tile_number);
+
+	//Search metatile name entries for a match
+	u32 meta_id = 0;
+	bool found_match = false;
+
+	for(int x = 0; x < (int)cgfx_stat.m_meta_names.size(); x++)
+	{
+		if(cgfx_stat.m_meta_names[x] == base_name)
+		{
+			found_match = true;
+			meta_id = x;
+			break;
+		}
+	}
+
+	if(!found_match) { return false; }
+
+	if(cgfx_stat.m_meta_forms[meta_id] > 3)
+	{
+		std::cout<<"GBE::CGFX - Invalid metatile form : " << (u32)cgfx_stat.m_meta_forms[meta_id] << "\n";
+		return false;
+	}
+
+	//Extract the sub-tile pixel data from the metatile image
+	u32 width = cgfx_stat.m_meta_width[meta_id];
+	u32 height = cgfx_stat.m_meta_height[meta_id];
+
+	u32 tile_w = width / (8 * cgfx::scaling_factor);
+	u32 tile_h = (cgfx_stat.m_meta_forms[meta_id] != 2) ? height / (8 * cgfx::scaling_factor) : height / (16 * cgfx::scaling_factor);
+
+	if(tile_w == 0 || tile_h == 0) { return false; }
+
+	u32 pixel_w = width / tile_w;
+	u32 pixel_h = height / tile_h;
+
+	u32 pos = (width * pixel_h) * (meta_tile_number / tile_w);
+	pos += (meta_tile_number % tile_w) * pixel_w;
+
+	for(int y = 0; y < (int)pixel_h; y++)
+	{
+		for(int x = 0; x < (int)pixel_w; x++)
+		{
+			if(pos < cgfx_stat.meta_pixel_data[meta_id].size())
+			{
+				out_pixels.push_back(cgfx_stat.meta_pixel_data[meta_id][pos++]);
+			}
+		}
+
+		pos -= pixel_w;
+		pos += width;
+	}
+
+	out_is_bg = (cgfx_stat.m_meta_forms[meta_id] == 0);
+	return !out_pixels.empty();
 }

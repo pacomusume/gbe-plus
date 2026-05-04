@@ -15,8 +15,28 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <queue>
+#include <thread>
+#include <mutex>
+#include <atomic>
 
 #include "common/common.h"
+
+//Pending image load task (filled during manifest parse, consumed by background loader)
+struct cgfx_load_task
+{
+	u32 file_idx;  //index into m_files
+	bool is_obj;   //true = OBJ (type < 10), false = BG (type >= 10)
+	u32 img_idx;   //slot in obj_pixel_data / bg_pixel_data
+};
+
+//Decoded image ready to be installed on the main thread
+struct cgfx_decoded_img
+{
+	std::vector<u32> pixels;
+	bool is_obj;
+	u32 img_idx;
+};
 
 struct dmg_cgfx_data
 { 
@@ -81,6 +101,18 @@ struct dmg_cgfx_data
 	u8 bg_pal_min[8];
 	u8 obj_pal_max[8];
 	u8 obj_pal_min[8];
+
+	//Async image loader state
+	std::vector<cgfx_load_task> pending_tasks;
+	std::queue<cgfx_decoded_img> decoded_queue;
+	std::mutex decoded_mutex;
+	std::thread loader_thread;
+	std::atomic<bool> stop_loader{false};
+	std::atomic<bool> loader_active{false};
+
+	//Per-image readiness flags (indexed same as obj/bg_pixel_data)
+	std::vector<bool> obj_img_ready;
+	std::vector<bool> bg_img_ready;
 };
 
 #endif // GB_CGFX_DATA

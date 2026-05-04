@@ -59,6 +59,12 @@ class DMG_LCD
 	u32 adjust_pixel_brightness(u32 color, u8 palette_id, u8 gfx_type);
 	void invalidate_cgfx();
 
+	//Async image loader
+	void process_pending_imgs(int batch_size);
+	void stop_image_loading();
+	bool compute_meta_pixels(const std::string& orig_name, std::vector<u32>& out_pixels, bool& out_is_bg);
+	void load_images_background();
+
 	//Serialize data for save state loading/saving
 	bool lcd_read(u32 offset, std::string filename);
 	bool lcd_write(std::string filename);

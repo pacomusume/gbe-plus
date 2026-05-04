@@ -1,0 +1,258 @@
+{
+	"BUILD_DIR" : "/home/runner/work/gbe-plus/gbe-plus/build/src/qt/gbe_plus_qt_autogen",
+	"CMAKE_BINARY_DIR" : "/home/runner/work/gbe-plus/gbe-plus/build",
+	"CMAKE_CURRENT_BINARY_DIR" : "/home/runner/work/gbe-plus/gbe-plus/build/src/qt",
+	"CMAKE_CURRENT_SOURCE_DIR" : "/home/runner/work/gbe-plus/gbe-plus/src/qt",
+	"CMAKE_EXECUTABLE" : "/usr/local/bin/cmake",
+	"CMAKE_LIST_FILES" : [ "/home/runner/work/gbe-plus/gbe-plus/src/qt/CMakeLists.txt" ],
+	"CMAKE_SOURCE_DIR" : "/home/runner/work/gbe-plus/gbe-plus",
+	"CROSS_CONFIG" : false,
+	"DEP_FILE" : "/home/runner/work/gbe-plus/gbe-plus/build/src/qt/gbe_plus_qt_autogen/deps",
+	"DEP_FILE_RULE_NAME" : "gbe_plus_qt_autogen/timestamp",
+	"HEADERS" : 
+	[
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/cgfx.h",
+			"Mu",
+			"EWIEGA46WW/moc_cgfx.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/cheat_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_cheat_menu.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/con_ir_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_con_ir_menu.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/data_dialog.h",
+			"Mu",
+			"EWIEGA46WW/moc_data_dialog.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/debug_dmg.h",
+			"Mu",
+			"EWIEGA46WW/moc_debug_dmg.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/general_settings.h",
+			"Mu",
+			"EWIEGA46WW/moc_general_settings.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/magic_reader_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_magic_reader_menu.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/main_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_main_menu.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/mpos_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_mpos_menu.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/mw_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_mw_menu.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/ogl_manager.h",
+			"Mu",
+			"EWIEGA46WW/moc_ogl_manager.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/pp2_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_pp2_menu.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/ps_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_ps_menu.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/qt_common.h",
+			"Mu",
+			"EWIEGA46WW/moc_qt_common.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/render.h",
+			"Mu",
+			"EWIEGA46WW/moc_render.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/rtc_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_rtc_menu.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/screens.h",
+			"Mu",
+			"EWIEGA46WW/moc_screens.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/tbf_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_tbf_menu.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/utp_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_utp_menu.cpp",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/zzh_menu.h",
+			"Mu",
+			"EWIEGA46WW/moc_zzh_menu.cpp",
+			null
+		]
+	],
+	"HEADER_EXTENSIONS" : [ "h", "hh", "h++", "hm", "hpp", "hxx", "in", "txx" ],
+	"INCLUDE_DIR" : "/home/runner/work/gbe-plus/gbe-plus/build/src/qt/gbe_plus_qt_autogen/include",
+	"MOC_COMPILATION_FILE" : "/home/runner/work/gbe-plus/gbe-plus/build/src/qt/gbe_plus_qt_autogen/mocs_compilation.cpp",
+	"MOC_DEFINITIONS" : 
+	[
+		"GBE_QT_5",
+		"QT_CORE_LIB",
+		"QT_GUI_LIB",
+		"QT_OPENGL_LIB",
+		"QT_WIDGETS_LIB"
+	],
+	"MOC_DEPEND_FILTERS" : 
+	[
+		[
+			"Q_PLUGIN_METADATA",
+			"[\n][ \t]*Q_PLUGIN_METADATA[ \t]*\\([^\\)]*FILE[ \t]*\"([^\"]+)\""
+		]
+	],
+	"MOC_INCLUDES" : 
+	[
+		"/home/runner/work/gbe-plus/gbe-plus/src",
+		"/usr/include/x86_64-linux-gnu/qt5",
+		"/usr/include/x86_64-linux-gnu/qt5/QtGui",
+		"/usr/include/x86_64-linux-gnu/qt5/QtCore",
+		"/usr/lib/x86_64-linux-gnu/qt5/mkspecs/linux-g++",
+		"/usr/include/x86_64-linux-gnu/qt5/QtWidgets",
+		"/usr/include/x86_64-linux-gnu/qt5/QtOpenGL",
+		"/usr/include/c++/13",
+		"/usr/include/x86_64-linux-gnu/c++/13",
+		"/usr/include/c++/13/backward",
+		"/usr/lib/gcc/x86_64-linux-gnu/13/include",
+		"/usr/local/include",
+		"/usr/include/x86_64-linux-gnu",
+		"/usr/include"
+	],
+	"MOC_MACRO_NAMES" : [ "Q_OBJECT", "Q_GADGET", "Q_NAMESPACE", "Q_NAMESPACE_EXPORT" ],
+	"MOC_OPTIONS" : [],
+	"MOC_PATH_PREFIX" : false,
+	"MOC_PREDEFS_CMD" : 
+	[
+		"/usr/bin/c++",
+		"-dM",
+		"-E",
+		"-c",
+		"/usr/local/share/cmake-3.31/Modules/CMakeCXXCompilerABI.cpp"
+	],
+	"MOC_PREDEFS_FILE" : "/home/runner/work/gbe-plus/gbe-plus/build/src/qt/gbe_plus_qt_autogen/moc_predefs.h",
+	"MOC_RELAXED_MODE" : false,
+	"MOC_SKIP" : [],
+	"MULTI_CONFIG" : false,
+	"PARALLEL" : 2,
+	"PARSE_CACHE_FILE" : "/home/runner/work/gbe-plus/gbe-plus/build/src/qt/CMakeFiles/gbe_plus_qt_autogen.dir/ParseCache.txt",
+	"QT_MOC_EXECUTABLE" : "/usr/lib/qt5/bin/moc",
+	"QT_UIC_EXECUTABLE" : "",
+	"QT_VERSION_MAJOR" : 5,
+	"QT_VERSION_MINOR" : 15,
+	"SETTINGS_FILE" : "/home/runner/work/gbe-plus/gbe-plus/build/src/qt/CMakeFiles/gbe_plus_qt_autogen.dir/AutogenUsed.txt",
+	"SOURCES" : 
+	[
+		[ "/home/runner/work/gbe-plus/gbe-plus/src/qt/cgfx.cpp", "Mu", null ],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/cheat_menu.cpp",
+			"Mu",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/con_ir_menu.cpp",
+			"Mu",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/data_dialog.cpp",
+			"Mu",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/debug_dmg.cpp",
+			"Mu",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/general_settings.cpp",
+			"Mu",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/magic_reader_menu.cpp",
+			"Mu",
+			null
+		],
+		[ "/home/runner/work/gbe-plus/gbe-plus/src/qt/main.cpp", "Mu", null ],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/main_menu.cpp",
+			"Mu",
+			null
+		],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/mpos_menu.cpp",
+			"Mu",
+			null
+		],
+		[ "/home/runner/work/gbe-plus/gbe-plus/src/qt/mw_menu.cpp", "Mu", null ],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/ogl_manager.cpp",
+			"Mu",
+			null
+		],
+		[ "/home/runner/work/gbe-plus/gbe-plus/src/qt/pp2_menu.cpp", "Mu", null ],
+		[ "/home/runner/work/gbe-plus/gbe-plus/src/qt/ps_menu.cpp", "Mu", null ],
+		[
+			"/home/runner/work/gbe-plus/gbe-plus/src/qt/qt_common.cpp",
+			"Mu",
+			null
+		],
+		[ "/home/runner/work/gbe-plus/gbe-plus/src/qt/render.cpp", "Mu", null ],
+		[ "/home/runner/work/gbe-plus/gbe-plus/src/qt/rtc_menu.cpp", "Mu", null ],
+		[ "/home/runner/work/gbe-plus/gbe-plus/src/qt/screens.cpp", "Mu", null ],
+		[ "/home/runner/work/gbe-plus/gbe-plus/src/qt/tbf_menu.cpp", "Mu", null ],
+		[ "/home/runner/work/gbe-plus/gbe-plus/src/qt/utp_menu.cpp", "Mu", null ],
+		[ "/home/runner/work/gbe-plus/gbe-plus/src/qt/zzh_menu.cpp", "Mu", null ]
+	],
+	"USE_BETTER_GRAPH" : false,
+	"VERBOSITY" : 0
+}

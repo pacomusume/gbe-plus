@@ -25,6 +25,13 @@ DMG_LCD::DMG_LCD()
 /****** LCD Destructor ******/
 DMG_LCD::~DMG_LCD()
 {
+	//Ensure background loader is stopped before members are destroyed
+	if(cgfx_stat.loader_active.load())
+	{
+		cgfx_stat.stop_loader.store(true);
+		if(cgfx_stat.loader_thread.joinable()) { cgfx_stat.loader_thread.join(); }
+	}
+
 	SDL_DestroyWindow(window);
 	std::cout<<"LCD::Shutdown\n";
 }
@@ -267,6 +274,9 @@ bool DMG_LCD::init()
 /****** Read LCD data from save state ******/
 bool DMG_LCD::lcd_read(u32 offset, std::string filename)
 {
+	//Stop the async image loader before touching saved state
+	stop_image_loading();
+
 	std::ifstream file(filename.c_str(), std::ios::binary);
 	
 	if(!file.is_open()) { return false; }
@@ -298,6 +308,9 @@ bool DMG_LCD::lcd_read(u32 offset, std::string filename)
 /****** Read LCD data from save state ******/
 bool DMG_LCD::lcd_write(std::string filename)
 {
+	//Stop the async image loader before writing saved state
+	stop_image_loading();
+
 	std::ofstream file(filename.c_str(), std::ios::binary | std::ios::app);
 	
 	if(!file.is_open()) { return false; }
@@ -1873,6 +1886,9 @@ void DMG_LCD::step(int cpu_clock)
 			if(lcd_stat.lcd_mode != 1)
 			{
 				lcd_stat.lcd_mode = 1;
+
+				//Install decoded CGFX images from background loader (small batch per frame)
+				if(cgfx::load_cgfx) { process_pending_imgs(8); }
 
 				//Restore Window parameters
 				lcd_stat.last_y = 0;
