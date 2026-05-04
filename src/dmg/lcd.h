@@ -43,6 +43,7 @@ class GB_LCD
 
 	SDL_Surface* load_pack_image(std::string filename);
 	SDL_Surface* h_flip_image(SDL_Surface* s);
+	void stop_image_loading();
 	void process_pending_imgs();
 	void load_images_background(std::string folder,
 		std::vector<img_file_task> file_tasks,

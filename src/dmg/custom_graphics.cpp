@@ -24,25 +24,50 @@
 // Maximum number of images allowed in a single pack (sanity guard)
 static const int MAX_PACK_IMAGES = 2048;
 
-void GB_LCD::clear_manifest() {
-	// Signal any background loader to stop, then wait for it to finish
+// Stop the background image loader and drain its pending queue, installing
+// any already-decoded images.  Does NOT clear cgfx_stat.imgs/himgs so that
+// partially-loaded packs keep whatever textures arrived before the stop.
+void GB_LCD::stop_image_loading()
+{
+	// Signal the thread to exit at its next per-image checkpoint.
 	cgfx_stat.stop_loading.store(true);
+
+	// Join is safe here: the background thread checks stop_loading between
+	// each individual image load, so it finishes at most one IMG_Load call
+	// after we set the flag (typically < 1 second).
 	if (cgfx_stat.img_loader_thread.joinable())
 	{
 		cgfx_stat.img_loader_thread.join();
 	}
 
-	// Drain pending queue (surfaces were not yet transferred to main arrays)
+	// Install any images the thread already decoded before the stop.
 	{
 		std::lock_guard<std::mutex> lock(cgfx_stat.pending_imgs_mutex);
 		while (!cgfx_stat.pending_imgs.empty())
 		{
 			pending_img_result& item = cgfx_stat.pending_imgs.front();
-			for (SDL_Surface* s : item.imgs) SDL_FreeSurface(s);
-			for (SDL_Surface* s : item.himgs) SDL_FreeSurface(s);
+			if (item.imgIdx < (u16)cgfx_stat.imgs.size())
+			{
+				cgfx_stat.imgs[item.imgIdx] = std::move(item.imgs);
+				cgfx_stat.himgs[item.imgIdx] = std::move(item.himgs);
+			}
+			else
+			{
+				for (SDL_Surface* s : item.imgs) SDL_FreeSurface(s);
+				for (SDL_Surface* s : item.himgs) SDL_FreeSurface(s);
+			}
 			cgfx_stat.pending_imgs.pop();
 		}
 	}
+
+	cgfx_stat.stop_loading.store(false);
+}
+
+void GB_LCD::clear_manifest() {
+	stop_image_loading();
+
+	// Discard any images that were drained-and-installed by stop_image_loading
+	// plus images that had already been installed by earlier process_pending_imgs calls.
 
 	cgfx_stat.packVersion = "";
 
@@ -80,7 +105,6 @@ void GB_LCD::clear_manifest() {
 	cgfx_stat.tempStrip = nullptr;
 
 	// Reset async counters
-	cgfx_stat.stop_loading.store(false);
 	cgfx_stat.loading_complete.store(true);
 	cgfx_stat.imgs_loaded_count.store(0);
 	cgfx_stat.imgs_total_count.store(0);
@@ -1022,14 +1046,25 @@ void GB_LCD::load_images_background(
 	for (auto& t : file_tasks) if (t.imgIdx > max_idx) max_idx = t.imgIdx;
 	for (auto& t : bright_tasks) if (t.dstImgIdx > max_idx) max_idx = t.dstImgIdx;
 
-	// Local staging: indices are always sequential (0..max_idx) since they are
-	// assigned as cgfx_stat.imgs.size() incremented by 1 per image during parsing.
+	// staging_imgs/himgs: local buffers keyed by imgIdx.
+	// Brightness mod tasks (Stage 2) need their source image to be in staging
+	// even after it was pushed to the queue, so we keep a staging copy of
+	// source images referenced by any brightness task.
 	std::vector<std::vector<SDL_Surface*>> staging_imgs(max_idx + 1);
 	std::vector<std::vector<SDL_Surface*>> staging_himgs(max_idx + 1);
 
+	// Set of source indices needed by brightness tasks (must be kept in staging).
+	std::vector<bool> needed_as_src(max_idx + 1, false);
+	for (auto& t : bright_tasks)
+	{
+		if (t.srcImgIdx <= max_idx) needed_as_src[t.srcImgIdx] = true;
+	}
+
 	bool stopped = false;
 
-	// Stage 1: Load image files from disk
+	// Stage 1: Load image files from disk.
+	// Push each decoded image to the shared queue immediately so the main
+	// thread can start rendering HD tiles without waiting for the full pack.
 	for (auto& task : file_tasks)
 	{
 		if (cgfx_stat.stop_loading.load()) { stopped = true; break; }
@@ -1051,8 +1086,10 @@ void GB_LCD::load_images_background(
 			continue;
 		}
 
-		staging_imgs[task.imgIdx].push_back(img);
-		staging_himgs[task.imgIdx].push_back(h_flip_image(img));
+		pending_img_result result;
+		result.imgIdx = task.imgIdx;
+		result.imgs.push_back(img);
+		result.himgs.push_back(h_flip_image(img));
 
 		// Load optional second image (two-surface <img> entries)
 		if (!task.filename2.empty())
@@ -1069,16 +1106,30 @@ void GB_LCD::load_images_background(
 				SDL_FreeSurface(raw);
 				if (img2)
 				{
-					staging_imgs[task.imgIdx].push_back(img2);
-					staging_himgs[task.imgIdx].push_back(h_flip_image(img2));
+					result.imgs.push_back(img2);
+					result.himgs.push_back(h_flip_image(img2));
 				}
 			}
+		}
+
+		// If this image is a brightness-mod source, keep a copy in staging.
+		if (task.imgIdx <= max_idx && needed_as_src[task.imgIdx])
+		{
+			staging_imgs[task.imgIdx] = result.imgs;   // shallow copy (same pointers)
+			staging_himgs[task.imgIdx] = result.himgs; // same
+		}
+
+		// Push to the shared queue so the main thread can install it this frame.
+		{
+			std::lock_guard<std::mutex> lock(cgfx_stat.pending_imgs_mutex);
+			cgfx_stat.pending_imgs.push(std::move(result));
 		}
 
 		cgfx_stat.imgs_loaded_count.fetch_add(1);
 	}
 
-	// Stage 2: Apply brightness modifications using already-loaded images
+	// Stage 2: Apply brightness modifications using already-loaded source images
+	// (still in staging) and push each result immediately.
 	if (!stopped)
 	{
 		for (auto& task : bright_tasks)
@@ -1096,42 +1147,33 @@ void GB_LCD::load_images_background(
 			SDL_Surface* modded = apply_brightness_mod(staging_imgs[task.srcImgIdx][0], task.brightness);
 			if (modded)
 			{
-				staging_imgs[task.dstImgIdx].push_back(modded);
-				staging_himgs[task.dstImgIdx].push_back(h_flip_image(modded));
+				pending_img_result result;
+				result.imgIdx = task.dstImgIdx;
+				result.imgs.push_back(modded);
+				result.himgs.push_back(h_flip_image(modded));
+				{
+					std::lock_guard<std::mutex> lock(cgfx_stat.pending_imgs_mutex);
+					cgfx_stat.pending_imgs.push(std::move(result));
+				}
 			}
 
 			cgfx_stat.imgs_loaded_count.fetch_add(1);
 		}
 	}
 
-	// Stage 3: Push all results to shared queue for main thread to install
 	if (!stopped)
 	{
-		std::lock_guard<std::mutex> lock(cgfx_stat.pending_imgs_mutex);
-		for (size_t i = 0; i <= max_idx; i++)
-		{
-			if (!staging_imgs[i].empty())
-			{
-				pending_img_result r;
-				r.imgIdx = (u16)i;
-				r.imgs = std::move(staging_imgs[i]);
-				r.himgs = std::move(staging_himgs[i]);
-				cgfx_stat.pending_imgs.push(std::move(r));
-			}
-		}
 		cgfx_stat.loading_complete.store(true);
 		std::cout << "[HD Pack] Async load complete: "
 			<< cgfx_stat.imgs_loaded_count.load() << "/"
 			<< cgfx_stat.imgs_total_count.load() << " item(s) loaded.\n";
 	}
 
-	// Cleanup: free staging surfaces only if we stopped early (Stage 3 didn't run).
-	// When !stopped, all non-empty vectors were moved into the queue above.
-	if (stopped)
-	{
-		for (auto& v : staging_imgs) for (SDL_Surface* s : v) SDL_FreeSurface(s);
-		for (auto& v : staging_himgs) for (SDL_Surface* s : v) SDL_FreeSurface(s);
-	}
+	// staging_imgs/himgs held shallow copies (same SDL_Surface* pointers as the
+	// results already in the queue).  Do NOT free them here – ownership was
+	// transferred via the pending_img_result pushed to the queue.
+	// (If we stopped early the surfaces already pushed are fine; any surfaces in
+	// staging for tasks that never ran were never allocated, so nothing leaks.)
 }
 
 void GB_LCD::new_rendered_screen_data() {

@@ -205,6 +205,10 @@ void GB_LCD::clear_buffers()
 /****** Read LCD data from save state ******/
 bool GB_LCD::lcd_read(u32 offset, std::string filename)
 {
+	// Stop any in-progress background image loading and drain its queue so
+	// cgfx_stat.imgs is stable while we modify LCD state below.
+	stop_image_loading();
+
 	std::ifstream file(filename.c_str(), std::ios::binary);
 	
 	if(!file.is_open()) { return false; }
@@ -251,6 +255,10 @@ bool GB_LCD::lcd_read(u32 offset, std::string filename)
 /****** Read LCD data from save state ******/
 bool GB_LCD::lcd_write(std::string filename)
 {
+	// Stop any in-progress background image loading so the loader thread is
+	// not writing to cgfx_stat.imgs while we serialize LCD state.
+	stop_image_loading();
+
 	std::ofstream file(filename.c_str(), std::ios::binary | std::ios::app);
 	
 	if(!file.is_open()) { return false; }
@@ -844,7 +852,7 @@ void DMG_LCD::render_bg_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
+		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -903,7 +911,7 @@ void GBC_LCD::render_bg_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
+		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -974,7 +982,7 @@ void DMG_LCD::render_win_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
+		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -1042,7 +1050,7 @@ void GBC_LCD::render_win_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
+		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -1142,7 +1150,7 @@ void DMG_LCD::render_obj_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
+		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -1212,7 +1220,7 @@ void GBC_LCD::render_obj_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && cgfx_stat.imgs[hdTile->imgIdx].empty()) hdTile = NULL;
+		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
 
 		if (hdTile)
 		{
