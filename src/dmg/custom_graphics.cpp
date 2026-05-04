@@ -25,6 +25,15 @@
 // Maximum number of images allowed in a single pack (sanity guard)
 static const int MAX_PACK_IMAGES = 2048;
 
+// Sentinel value for an invalid/missing image index in pack tiles (u16 field)
+static const u16 INVALID_IMG_IDX = 0xFFFF;
+
+// Sentinel value for an invalid/missing image index in pack backgrounds (s16 field)
+static const s16 INVALID_BG_IMG_IDX = -1;
+
+// Seconds to wait for the background image loader before detaching it
+static const int IMAGE_LOADER_TIMEOUT_SECONDS = 2;
+
 /****** Signal background loader to stop, wait up to 2s, then join or detach safely ******/
 void GB_LCD::stop_image_loading()
 {
@@ -33,7 +42,7 @@ void GB_LCD::stop_image_loading()
 	// Spin-wait up to 2 seconds for the thread to set thread_finished
 	if (cgfx_stat.img_loader_thread.joinable())
 	{
-		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(IMAGE_LOADER_TIMEOUT_SECONDS);
 		while (!cgfx_stat.thread_finished.load() &&
 			   std::chrono::steady_clock::now() < deadline)
 		{
@@ -293,7 +302,7 @@ bool GB_LCD::load_manifest(std::string filename)
 							u16 parsedIdx = (u16)stoi(token);
 							pt.imgIdx = (parsedIdx < (u16)imgIdxOffset.size())
 								? imgIdxOffset[parsedIdx]
-								: (u16)0xFFFF;
+								: INVALID_IMG_IDX;
 							break;
 						}
 						case 1:
@@ -535,7 +544,7 @@ bool GB_LCD::load_manifest(std::string filename)
 							u16 parsedIdx = (u16)stoi(token);
 							bg.imgIdx = (parsedIdx < (u16)imgIdxOffset.size())
 								? (s16)imgIdxOffset[parsedIdx]
-								: (s16)-1;
+								: INVALID_BG_IMG_IDX;
 							break;
 						}
 						case 1:
