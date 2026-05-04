@@ -782,16 +782,22 @@ void gbe_cgfx::dump_selection()
 	r.h = drawY;
 
 	SDL_Surface* ims = SDL_CreateRGBSurfaceWithFormat(0, 160 * (cgfx_scale->currentIndex() + 1), drawY * (cgfx_scale->currentIndex() + 1), 32, SDL_PIXELFORMAT_ARGB8888);
-	SDL_BlitScaled(s, &r, ims, NULL);
-	IMG_SavePNG(ims, (get_game_cgfx_folder() + cgfx::meta_dump_name + ".png").c_str());
-	SDL_FreeSurface(ims);
+	if (ims)
+	{
+		SDL_BlitScaled(s, &r, ims, NULL);
+		IMG_SavePNG(ims, (get_game_cgfx_folder() + cgfx::meta_dump_name + ".png").c_str());
+		SDL_FreeSurface(ims);
+	}
 
 	if (layer_select->currentIndex() <= 1)
 	{
 		SDL_Surface* ims2 = SDL_CreateRGBSurfaceWithFormat(0, 160 * (cgfx_scale->currentIndex() + 1), drawY * (cgfx_scale->currentIndex() + 1), 32, SDL_PIXELFORMAT_ARGB8888);
-		SDL_BlitScaled(s2, &r, ims2, NULL);
-		IMG_SavePNG(ims2, (get_game_cgfx_folder() + cgfx::meta_dump_name + "b.png").c_str());
-		SDL_FreeSurface(ims2);
+		if (ims2)
+		{
+			SDL_BlitScaled(s2, &r, ims2, NULL);
+			IMG_SavePNG(ims2, (get_game_cgfx_folder() + cgfx::meta_dump_name + "b.png").c_str());
+			SDL_FreeSurface(ims2);
+		}
 	}
 	
 	SDL_FreeSurface(s);

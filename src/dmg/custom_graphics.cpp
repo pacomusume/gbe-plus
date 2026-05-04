@@ -13,6 +13,7 @@
 #include <sstream>
 #include <iostream>
 #include <functional>
+#include <chrono>
 
 #include "common/util.h"
 #include "common/cgfx_common.h"
@@ -24,15 +25,34 @@
 // Maximum number of images allowed in a single pack (sanity guard)
 static const int MAX_PACK_IMAGES = 2048;
 
-void GB_LCD::clear_manifest() {
-	// Signal any background loader to stop, then wait for it to finish
+/****** Signal background loader to stop, wait up to 2s, then join or detach safely ******/
+void GB_LCD::stop_image_loading()
+{
 	cgfx_stat.stop_loading.store(true);
+
+	// Spin-wait up to 2 seconds for the thread to set thread_finished
 	if (cgfx_stat.img_loader_thread.joinable())
 	{
-		cgfx_stat.img_loader_thread.join();
+		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+		while (!cgfx_stat.thread_finished.load() &&
+			   std::chrono::steady_clock::now() < deadline)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+
+		if (cgfx_stat.thread_finished.load())
+		{
+			cgfx_stat.img_loader_thread.join();
+		}
+		else
+		{
+			// Thread did not finish in time; detach to avoid blocking the UI thread.
+			// The thread will safely exit on its own since stop_loading is set.
+			cgfx_stat.img_loader_thread.detach();
+		}
 	}
 
-	// Drain pending queue (surfaces were not yet transferred to main arrays)
+	// Drain any surfaces the background thread already queued
 	{
 		std::lock_guard<std::mutex> lock(cgfx_stat.pending_imgs_mutex);
 		while (!cgfx_stat.pending_imgs.empty())
@@ -43,6 +63,11 @@ void GB_LCD::clear_manifest() {
 			cgfx_stat.pending_imgs.pop();
 		}
 	}
+}
+
+void GB_LCD::clear_manifest() {
+	// Safely stop any running background loader and drain its queue
+	stop_image_loading();
 
 	cgfx_stat.packVersion = "";
 
@@ -82,6 +107,7 @@ void GB_LCD::clear_manifest() {
 	// Reset async counters
 	cgfx_stat.stop_loading.store(false);
 	cgfx_stat.loading_complete.store(true);
+	cgfx_stat.thread_finished.store(true);
 	cgfx_stat.imgs_loaded_count.store(0);
 	cgfx_stat.imgs_total_count.store(0);
 }
@@ -263,8 +289,13 @@ bool GB_LCD::load_manifest(std::string filename)
 						switch (tokenCnt)
 						{
 						case 0:
-							pt.imgIdx = imgIdxOffset[stoi(token)];
+						{
+							u16 parsedIdx = (u16)stoi(token);
+							pt.imgIdx = (parsedIdx < (u16)imgIdxOffset.size())
+								? imgIdxOffset[parsedIdx]
+								: (u16)0xFFFF;
 							break;
+						}
 						case 1:
 							pt.tileStr = token;
 							for (u16 i = 0; i < 8; i++)
@@ -500,8 +531,13 @@ bool GB_LCD::load_manifest(std::string filename)
 						switch (tokenCnt)
 						{
 						case 0:
-							bg.imgIdx = imgIdxOffset[stoi(token)];
+						{
+							u16 parsedIdx = (u16)stoi(token);
+							bg.imgIdx = (parsedIdx < (u16)imgIdxOffset.size())
+								? (s16)imgIdxOffset[parsedIdx]
+								: (s16)-1;
 							break;
+						}
 						case 1:
 							bg.brightness = stof(token);
 							break;
@@ -877,6 +913,7 @@ bool GB_LCD::load_manifest(std::string filename)
 			<< " image file(s), " << img_brightness_tasks.size()
 			<< " brightness mod(s).\n";
 		std::string folder = get_game_cgfx_folder();
+		cgfx_stat.thread_finished.store(false);
 		cgfx_stat.img_loader_thread = std::thread(
 			&GB_LCD::load_images_background, this,
 			folder, img_file_tasks, img_brightness_tasks);
@@ -1014,6 +1051,7 @@ void GB_LCD::load_images_background(
 	if (file_tasks.empty() && bright_tasks.empty())
 	{
 		cgfx_stat.loading_complete.store(true);
+		cgfx_stat.thread_finished.store(true);
 		return;
 	}
 
@@ -1132,6 +1170,9 @@ void GB_LCD::load_images_background(
 		for (auto& v : staging_imgs) for (SDL_Surface* s : v) SDL_FreeSurface(s);
 		for (auto& v : staging_himgs) for (SDL_Surface* s : v) SDL_FreeSurface(s);
 	}
+
+	// Signal that this thread is done regardless of whether we stopped early
+	cgfx_stat.thread_finished.store(true);
 }
 
 void GB_LCD::new_rendered_screen_data() {
