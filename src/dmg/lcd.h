@@ -48,6 +48,16 @@ class GB_LCD
 	void load_images_background(std::string folder,
 		std::vector<img_file_task> file_tasks,
 		std::vector<img_brightness_task> bright_tasks);
+
+	// Returns true when hdTile is non-null AND its image has been loaded.
+	// Render functions use this as a fast guard before accessing cgfx_stat.imgs.
+	inline bool hd_tile_ready(const pack_tile* hdTile) const
+	{
+		return hdTile
+			&& hdTile->imgIdx < (u16)cgfx_stat.imgs.size()
+			&& !cgfx_stat.imgs[hdTile->imgIdx].empty();
+	}
+
 	virtual pack_tile* get_tile_match(tile_strip* s, u16 cscanline) = 0;
 	bool check_screen_tile_at_loc(SDL_Rect* loc, pack_condition* c);
 	bool check_line_tile_at_loc(std::vector <tile_strip>* scanline, SDL_Rect* loc, pack_condition* c);

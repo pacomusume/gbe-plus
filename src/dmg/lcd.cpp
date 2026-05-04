@@ -852,7 +852,7 @@ void DMG_LCD::render_bg_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
+		if (!hd_tile_ready(hdTile)) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -911,7 +911,7 @@ void GBC_LCD::render_bg_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
+		if (!hd_tile_ready(hdTile)) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -982,7 +982,7 @@ void DMG_LCD::render_win_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
+		if (!hd_tile_ready(hdTile)) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -1050,7 +1050,7 @@ void GBC_LCD::render_win_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
+		if (!hd_tile_ready(hdTile)) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -1150,7 +1150,7 @@ void DMG_LCD::render_obj_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
+		if (!hd_tile_ready(hdTile)) hdTile = NULL;
 
 		if (hdTile)
 		{
@@ -1220,7 +1220,7 @@ void GBC_LCD::render_obj_scanline(bool raw)
 		else hdTile = NULL;
 
 		// Fall back to original tile if HD image hasn't loaded yet
-		if (hdTile && (hdTile->imgIdx >= (u16)cgfx_stat.imgs.size() || cgfx_stat.imgs[hdTile->imgIdx].empty())) hdTile = NULL;
+		if (!hd_tile_ready(hdTile)) hdTile = NULL;
 
 		if (hdTile)
 		{

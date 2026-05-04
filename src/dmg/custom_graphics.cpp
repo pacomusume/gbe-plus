@@ -1112,11 +1112,14 @@ void GB_LCD::load_images_background(
 			}
 		}
 
-		// If this image is a brightness-mod source, keep a copy in staging.
+		// If this image is a brightness-mod source, keep a shallow copy of
+		// the surface pointers in staging so Stage 2 can read them.
+		// Ownership of the surfaces is with the queue (result was moved there).
+		// staging_imgs holds the same raw pointers but must NOT free them.
 		if (task.imgIdx <= max_idx && needed_as_src[task.imgIdx])
 		{
-			staging_imgs[task.imgIdx] = result.imgs;   // shallow copy (same pointers)
-			staging_himgs[task.imgIdx] = result.himgs; // same
+			staging_imgs[task.imgIdx] = result.imgs;   // copies pointer values only
+			staging_himgs[task.imgIdx] = result.himgs; // copies pointer values only
 		}
 
 		// Push to the shared queue so the main thread can install it this frame.
