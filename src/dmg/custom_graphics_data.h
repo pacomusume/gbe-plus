@@ -161,12 +161,13 @@ struct dmg_cgfx_data
 	std::queue<pending_img_result> pending_imgs;
 	std::atomic<bool> stop_loading;
 	std::atomic<bool> loading_complete;
+	std::atomic<bool> thread_finished;
 	std::atomic<int> imgs_loaded_count;
 	std::atomic<int> imgs_total_count;
 
 	dmg_cgfx_data()
 		: brightnessMod(nullptr), alphaCpy(nullptr), tempStrip(nullptr), frameCnt(0),
-		  stop_loading(false), loading_complete(true),
+		  stop_loading(false), loading_complete(true), thread_finished(true),
 		  imgs_loaded_count(0), imgs_total_count(0)
 	{
 		std::fill(vram_tile_used, vram_tile_used + 768, 0);
