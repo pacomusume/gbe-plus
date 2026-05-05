@@ -1815,13 +1815,9 @@ void DMG_LCD::upload_pending_textures()
 		cgfx_stat.hd_tex_height[i] = src->h;
 	}
 
-	cgfx_stat.textures_need_upload = false;
-
 	#endif
 
-#ifndef GBE_OGL
 	cgfx_stat.textures_need_upload = false;
-#endif
 }
 
 /****** Stop the background image loader and drain the decoded queue ******/

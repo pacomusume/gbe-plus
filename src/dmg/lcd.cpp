@@ -2152,7 +2152,18 @@ void DMG_LCD::step(int cpu_clock)
 				//Render final screen buffer
 				if(lcd_stat.lcd_enable)
 				{
-					bool gpu_hd_render = (config::use_opengl && cgfx::loaded && (cgfx::scaling_factor > 1));
+					bool gpu_hd_render = false;
+					if(config::use_opengl && cgfx::loaded && (cgfx::scaling_factor > 1))
+					{
+						for(u32 i = 0; i < cgfx_stat.hd_textures.size(); i++)
+						{
+							if(cgfx_stat.hd_textures[i] != 0)
+							{
+								gpu_hd_render = true;
+								break;
+							}
+						}
+					}
 
 					//Copy sub-screen to screen buffer
 					if(mem->sub_screen_buffer.size())
