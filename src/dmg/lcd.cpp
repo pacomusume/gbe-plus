@@ -10,10 +10,46 @@
 // Responsible for blitting pixel data and limiting frame rate
 
 #include <cmath>
+#include <algorithm>
 
 #include "lcd.h"
 #include "common/cgfx_common.h"
 #include "common/util.h"
+
+#ifdef GBE_OGL
+static void render_texture_quad(float dst_x, float dst_y, float dst_w, float dst_h,
+	float src_x, float src_y, float src_w, float src_h,
+	GLuint texture_id, int tex_width, int tex_height, float brightness,
+	bool h_flip, bool v_flip)
+{
+	if(texture_id == 0 || tex_width <= 0 || tex_height <= 0 || dst_w <= 0.0f || dst_h <= 0.0f) { return; }
+
+	float u0 = src_x / tex_width;
+	float v0 = src_y / tex_height;
+	float u1 = (src_x + src_w) / tex_width;
+	float v1 = (src_y + src_h) / tex_height;
+
+	if(h_flip) { std::swap(u0, u1); }
+	if(v_flip) { std::swap(v0, v1); }
+
+	glUseProgram(0);
+	glEnable(GL_TEXTURE_2D);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glBindTexture(GL_TEXTURE_2D, texture_id);
+	glColor4f(brightness, brightness, brightness, 1.0f);
+
+	glBegin(GL_QUADS);
+		glTexCoord2f(u0, v0); glVertex2f(dst_x, dst_y);
+		glTexCoord2f(u1, v0); glVertex2f(dst_x + dst_w, dst_y);
+		glTexCoord2f(u1, v1); glVertex2f(dst_x + dst_w, dst_y + dst_h);
+		glTexCoord2f(u0, v1); glVertex2f(dst_x, dst_y + dst_h);
+	glEnd();
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+#endif
 
 /****** LCD Constructor ******/
 DMG_LCD::DMG_LCD()
@@ -162,6 +198,15 @@ void DMG_LCD::reset()
         for(int x = 0; x < 16; x++) { lcd_stat.flip_16[x] = (15 - x); }
 
 	//CGFX setup
+	for(u32 i = 0; i < cgfx_stat.obj_tile_surf.size(); i++) { if(cgfx_stat.obj_tile_surf[i] != NULL) { SDL_FreeSurface(cgfx_stat.obj_tile_surf[i]); } }
+	for(u32 i = 0; i < cgfx_stat.bg_tile_surf.size(); i++) { if(cgfx_stat.bg_tile_surf[i] != NULL) { SDL_FreeSurface(cgfx_stat.bg_tile_surf[i]); } }
+	cgfx_stat.obj_tile_surf.clear();
+	cgfx_stat.bg_tile_surf.clear();
+	cgfx_stat.hd_textures.clear();
+	cgfx_stat.hd_tex_width.clear();
+	cgfx_stat.hd_tex_height.clear();
+	cgfx_stat.textures_need_upload = false;
+
 	cgfx_stat.current_obj_hash.clear();
 	cgfx_stat.current_obj_hash.resize(40, "");
 
@@ -212,7 +257,7 @@ void DMG_LCD::reset()
 			cgfx::scale_squared = cgfx::scaling_factor * cgfx::scaling_factor;
 
 			hd_screen_buffer.clear();
-			hd_screen_buffer.resize((config::sys_width * config::sys_height), 0);
+			if(!config::use_opengl) { hd_screen_buffer.resize((config::sys_width * config::sys_height), 0); }
 		}
 	}
 
@@ -734,6 +779,14 @@ void DMG_LCD::render_cgfx_dmg_bg_scanline(u16 bg_id, bool is_bg)
 	//Grab bytes from VRAM representing 8x1 pixel data - Used for drawing the raw_scanline
 	u16 tile_data = mem->read_u16(0x8000 + (bg_id << 4) + (tile_line << 1));
 	u8 tile_pixel = 0;
+	bool use_gpu_hd = false;
+
+	#ifdef GBE_OGL
+	use_gpu_hd = (config::use_opengl && cgfx::scaling_factor > 1 && cgfx_stat.last_id < cgfx_stat.hd_textures.size()
+		&& cgfx_stat.hd_textures[cgfx_stat.last_id] != 0
+		&& cgfx_stat.hd_tex_width[cgfx_stat.last_id] > 0
+		&& cgfx_stat.hd_tex_height[cgfx_stat.last_id] > 0);
+	#endif
 
 	for(int x = tile_start, y = 7; x < (tile_start + 8); x++, y--)
 	{
@@ -753,12 +806,10 @@ void DMG_LCD::render_cgfx_dmg_bg_scanline(u16 bg_id, bool is_bg)
 		//Render HD
 		else
 		{
-			u32 pos = (lcd_stat.scanline_pixel_counter * cgfx::scaling_factor) + (lcd_stat.current_scanline * cgfx::scaling_factor * config::sys_width);
-			u32 bg_pos = ((x - tile_start) * cgfx::scaling_factor) + (tile_line * cgfx::scale_squared * 8);
-			
-			if(lcd_stat.scanline_pixel_counter < 160)
+			if((lcd_stat.scanline_pixel_counter < 160) && (!use_gpu_hd))
 			{
-
+				u32 pos = (lcd_stat.scanline_pixel_counter * cgfx::scaling_factor) + (lcd_stat.current_scanline * cgfx::scaling_factor * config::sys_width);
+				u32 bg_pos = ((x - tile_start) * cgfx::scaling_factor) + (tile_line * cgfx::scale_squared * 8);
 				for(int a = 0; a < cgfx::scaling_factor; a++)
 				{
 					for(int b = 0; b < cgfx::scaling_factor; b++)
@@ -774,6 +825,20 @@ void DMG_LCD::render_cgfx_dmg_bg_scanline(u16 bg_id, bool is_bg)
 			lcd_stat.scanline_pixel_counter++;
 		}
 	}
+
+	#ifdef GBE_OGL
+	if(use_gpu_hd)
+	{
+		float draw_x = ((lcd_stat.scanline_pixel_counter - 8) * cgfx::scaling_factor);
+		float draw_y = (lcd_stat.current_scanline * cgfx::scaling_factor);
+		float draw_w = (8 * cgfx::scaling_factor);
+		float draw_h = cgfx::scaling_factor;
+		float src_y = (tile_line * cgfx::scaling_factor);
+		render_texture_quad(draw_x, draw_y, draw_w, draw_h, 0.0f, src_y, draw_w, draw_h,
+			cgfx_stat.hd_textures[cgfx_stat.last_id], cgfx_stat.hd_tex_width[cgfx_stat.last_id],
+			cgfx_stat.hd_tex_height[cgfx_stat.last_id], 1.0f, false, false);
+	}
+	#endif
 }
 
 /****** Renders pixels for the BG (per-scanline) - GBC version ******/
@@ -892,9 +957,20 @@ void DMG_LCD::render_cgfx_gbc_bg_scanline(u16 tile_data, u8 bg_map_attribute, bo
 
 	//Grab the auto-bright property of this hash
 	u8 auto_bright = cgfx_stat.m_auto_bright[cgfx_stat.last_id];
+	bool use_gpu_hd = false;
+	float bright = 1.0f;
+
+	#ifdef GBE_OGL
+	use_gpu_hd = (config::use_opengl && cgfx::scaling_factor > 1 && cgfx_stat.last_id < cgfx_stat.hd_textures.size()
+		&& cgfx_stat.hd_textures[cgfx_stat.last_id] != 0
+		&& cgfx_stat.hd_tex_width[cgfx_stat.last_id] > 0
+		&& cgfx_stat.hd_tex_height[cgfx_stat.last_id] > 0);
+	if(auto_bright) { bright = std::max(0.0f, std::min(1.0f, (float)cgfx_stat.bg_pal_max[(bg_map_attribute & 0x7)] / 255.0f)); }
+	#endif
 
 	u8 tile_pixel = 0;
 	u8 bg_priority = (bg_map_attribute & 0x80) ? 1 : 0;
+	u8 initial_counter = lcd_stat.scanline_pixel_counter;
 
 	//Account for horizontal flipping
 	lcd_stat.scanline_pixel_counter = (bg_map_attribute & 0x20) ? (lcd_stat.scanline_pixel_counter + 7) : lcd_stat.scanline_pixel_counter;
@@ -937,13 +1013,12 @@ void DMG_LCD::render_cgfx_gbc_bg_scanline(u16 tile_data, u8 bg_map_attribute, bo
 		//Render HD
 		else
 		{
-			u32 pos = (lcd_stat.scanline_pixel_counter * cgfx::scaling_factor) + (lcd_stat.current_scanline * cgfx::scaling_factor * config::sys_width);
-			u32 bg_pos = ((x - tile_start) * cgfx::scaling_factor) + (tile_line * cgfx::scale_squared * 8);
-			u32 c = 0;
-			u32 d = 0;
-			
-			if(lcd_stat.scanline_pixel_counter < 160)
+			if((lcd_stat.scanline_pixel_counter < 160) && (!use_gpu_hd))
 			{
+				u32 pos = (lcd_stat.scanline_pixel_counter * cgfx::scaling_factor) + (lcd_stat.current_scanline * cgfx::scaling_factor * config::sys_width);
+				u32 bg_pos = ((x - tile_start) * cgfx::scaling_factor) + (tile_line * cgfx::scale_squared * 8);
+				u32 c = 0;
+				u32 d = 0;
 				for(int a = 0; a < cgfx::scaling_factor; a++)
 				{
 					//Calculate vertical flipping offset
@@ -971,6 +1046,20 @@ void DMG_LCD::render_cgfx_gbc_bg_scanline(u16 tile_data, u8 bg_map_attribute, bo
 
 		lcd_stat.scanline_pixel_counter += counter;
 	}
+
+	#ifdef GBE_OGL
+	if(use_gpu_hd)
+	{
+		float draw_x = (initial_counter * cgfx::scaling_factor);
+		float draw_y = (lcd_stat.current_scanline * cgfx::scaling_factor);
+		float draw_w = (8 * cgfx::scaling_factor);
+		float draw_h = cgfx::scaling_factor;
+		float src_y = (tile_line * cgfx::scaling_factor);
+		render_texture_quad(draw_x, draw_y, draw_w, draw_h, 0.0f, src_y, draw_w, draw_h,
+			cgfx_stat.hd_textures[cgfx_stat.last_id], cgfx_stat.hd_tex_width[cgfx_stat.last_id],
+			cgfx_stat.hd_tex_height[cgfx_stat.last_id], bright, (bg_map_attribute & 0x20), (bg_map_attribute & 0x40));
+	}
+	#endif
 
 	if(bg_map_attribute & 0x20) { lcd_stat.scanline_pixel_counter += 9; }
 }
@@ -1306,6 +1395,14 @@ void DMG_LCD::render_cgfx_dmg_obj_scanline(u8 sprite_id)
 
 	u16 tile_pixel = (8 * tile_line);
 	u32 custom_color = 0;
+	bool use_gpu_hd = false;
+
+	#ifdef GBE_OGL
+	use_gpu_hd = (config::use_opengl && cgfx::scaling_factor > 1 && cgfx_stat.last_id < cgfx_stat.hd_textures.size()
+		&& cgfx_stat.hd_textures[cgfx_stat.last_id] != 0
+		&& cgfx_stat.hd_tex_width[cgfx_stat.last_id] > 0
+		&& cgfx_stat.hd_tex_height[cgfx_stat.last_id] > 0);
+	#endif
 
 	//Account for horizontal flipping
 	lcd_stat.scanline_pixel_counter = obj[sprite_id].h_flip ? (lcd_stat.scanline_pixel_counter + 7) : lcd_stat.scanline_pixel_counter;
@@ -1327,13 +1424,12 @@ void DMG_LCD::render_cgfx_dmg_obj_scanline(u8 sprite_id)
 		//Render HD
 		else
 		{
-			u32 pos = (lcd_stat.scanline_pixel_counter * cgfx::scaling_factor) + (lcd_stat.current_scanline * cgfx::scaling_factor * config::sys_width);
-			u32 obj_pos = ((x - tile_pixel) * cgfx::scaling_factor) + (tile_line * cgfx::scale_squared * 8);
-			u32 c = 0;
-			u32 d = 0;
-
-			if(lcd_stat.scanline_pixel_counter < 160)
+			if((lcd_stat.scanline_pixel_counter < 160) && (!use_gpu_hd))
 			{
+				u32 pos = (lcd_stat.scanline_pixel_counter * cgfx::scaling_factor) + (lcd_stat.current_scanline * cgfx::scaling_factor * config::sys_width);
+				u32 obj_pos = ((x - tile_pixel) * cgfx::scaling_factor) + (tile_line * cgfx::scale_squared * 8);
+				u32 c = 0;
+				u32 d = 0;
 				for(int a = 0; a < cgfx::scaling_factor; a++)
 				{
 					//Calculate vertical flipping offset
@@ -1353,6 +1449,27 @@ void DMG_LCD::render_cgfx_dmg_obj_scanline(u8 sprite_id)
 					obj_pos += (8 * cgfx::scaling_factor);
 				}
 			}
+
+			#ifdef GBE_OGL
+			else if((lcd_stat.scanline_pixel_counter < 160) && use_gpu_hd)
+			{
+				u32 src_pixel_x = (x - tile_pixel);
+				u32 src_x = src_pixel_x * cgfx::scaling_factor;
+				float draw_x = (lcd_stat.scanline_pixel_counter * cgfx::scaling_factor);
+				float draw_y = (lcd_stat.current_scanline * cgfx::scaling_factor);
+				float draw_size = cgfx::scaling_factor;
+				custom_color = cgfx_stat.obj_pixel_data[obj_id][x];
+
+				if(custom_color == cgfx::transparency_color) { }
+				else if((obj[sprite_id].bg_priority == 1) && (scanline_raw[lcd_stat.scanline_pixel_counter] != 0)) { }
+				else
+				{
+					render_texture_quad(draw_x, draw_y, draw_size, draw_size, src_x, (tile_line * cgfx::scaling_factor),
+						draw_size, draw_size, cgfx_stat.hd_textures[cgfx_stat.last_id], cgfx_stat.hd_tex_width[cgfx_stat.last_id],
+						cgfx_stat.hd_tex_height[cgfx_stat.last_id], 1.0f, obj[sprite_id].h_flip, obj[sprite_id].v_flip);
+				}
+			}
+			#endif
 		}
 
 		lcd_stat.scanline_pixel_counter += counter;
@@ -1475,6 +1592,16 @@ void DMG_LCD::render_cgfx_gbc_obj_scanline(u8 sprite_id)
 
 	//Grab the auto-bright property of this hash
 	u8 auto_bright = cgfx_stat.m_auto_bright[cgfx_stat.last_id];
+	bool use_gpu_hd = false;
+	float bright = 1.0f;
+
+	#ifdef GBE_OGL
+	use_gpu_hd = (config::use_opengl && cgfx::scaling_factor > 1 && cgfx_stat.last_id < cgfx_stat.hd_textures.size()
+		&& cgfx_stat.hd_textures[cgfx_stat.last_id] != 0
+		&& cgfx_stat.hd_tex_width[cgfx_stat.last_id] > 0
+		&& cgfx_stat.hd_tex_height[cgfx_stat.last_id] > 0);
+	if(auto_bright) { bright = std::max(0.0f, std::min(1.0f, (float)cgfx_stat.obj_pal_max[obj[sprite_id].color_palette_number] / 255.0f)); }
+	#endif
 
 	u16 tile_pixel = (8 * tile_line);
 	u32 custom_color = 0;
@@ -1509,13 +1636,12 @@ void DMG_LCD::render_cgfx_gbc_obj_scanline(u8 sprite_id)
 		//Render HD
 		else
 		{
-			u32 pos = (lcd_stat.scanline_pixel_counter * cgfx::scaling_factor) + (lcd_stat.current_scanline * cgfx::scaling_factor * config::sys_width);
-			u32 obj_pos = ((x - tile_pixel) * cgfx::scaling_factor) + (tile_line * cgfx::scale_squared * 8);
-			u32 c = 0;
-			u32 d = 0;
-			
-			if(lcd_stat.scanline_pixel_counter < 160)
+			if((lcd_stat.scanline_pixel_counter < 160) && (!use_gpu_hd))
 			{
+				u32 pos = (lcd_stat.scanline_pixel_counter * cgfx::scaling_factor) + (lcd_stat.current_scanline * cgfx::scaling_factor * config::sys_width);
+				u32 obj_pos = ((x - tile_pixel) * cgfx::scaling_factor) + (tile_line * cgfx::scale_squared * 8);
+				u32 c = 0;
+				u32 d = 0;
 				for(int a = 0; a < cgfx::scaling_factor; a++)
 				{
 					//Calculate vertical flipping offset
@@ -1542,6 +1668,34 @@ void DMG_LCD::render_cgfx_gbc_obj_scanline(u8 sprite_id)
 					obj_pos += (8 * cgfx::scaling_factor);
 				}
 			}
+
+			#ifdef GBE_OGL
+			else if((lcd_stat.scanline_pixel_counter < 160) && use_gpu_hd)
+			{
+				u32 src_pixel_x = (x - tile_pixel);
+				u32 src_x = src_pixel_x * cgfx::scaling_factor;
+				float draw_x = (lcd_stat.scanline_pixel_counter * cgfx::scaling_factor);
+				float draw_y = (lcd_stat.current_scanline * cgfx::scaling_factor);
+				float draw_size = cgfx::scaling_factor;
+				custom_color = cgfx_stat.obj_pixel_data[obj_id][x];
+
+				if((auto_bright) && (custom_color != cgfx::transparency_color))
+				{
+					custom_color = adjust_pixel_brightness(custom_color, obj[sprite_id].color_palette_number, 1);
+				}
+
+				if(custom_color == cgfx::transparency_color) { }
+				else if((obj[sprite_id].bg_priority == 1) && (scanline_raw[lcd_stat.scanline_pixel_counter] != 0)) { }
+				else if((obj[sprite_id].bg_priority == 0) && (scanline_priority[lcd_stat.scanline_pixel_counter] == 1)
+				&& (scanline_raw[lcd_stat.scanline_pixel_counter] != 0)) { }
+				else
+				{
+					render_texture_quad(draw_x, draw_y, draw_size, draw_size, src_x, (tile_line * cgfx::scaling_factor),
+						draw_size, draw_size, cgfx_stat.hd_textures[cgfx_stat.last_id], cgfx_stat.hd_tex_width[cgfx_stat.last_id],
+						cgfx_stat.hd_tex_height[cgfx_stat.last_id], bright, obj[sprite_id].h_flip, obj[sprite_id].v_flip);
+				}
+			}
+			#endif
 		}
 
 		lcd_stat.scanline_pixel_counter += counter;
@@ -1889,6 +2043,22 @@ void DMG_LCD::step(int cpu_clock)
 
 				//Install decoded CGFX images from background loader (small batch per frame)
 				if(cgfx::load_cgfx) { process_pending_imgs(8); }
+				upload_pending_textures();
+
+				#ifdef GBE_OGL
+				if(config::use_opengl)
+				{
+					glUseProgram(0);
+					glViewport(0, 0, config::win_width, config::win_height);
+					glClearColor(0, 0, 0, 0);
+					glClear(GL_COLOR_BUFFER_BIT);
+					glMatrixMode(GL_PROJECTION);
+					glLoadIdentity();
+					glOrtho(0, config::sys_width, config::sys_height, 0, -1, 1);
+					glMatrixMode(GL_MODELVIEW);
+					glLoadIdentity();
+				}
+				#endif
 
 				//Restore Window parameters
 				lcd_stat.last_y = 0;
@@ -1982,6 +2152,8 @@ void DMG_LCD::step(int cpu_clock)
 				//Render final screen buffer
 				if(lcd_stat.lcd_enable)
 				{
+					bool gpu_hd_render = (config::use_opengl && cgfx::loaded && (cgfx::scaling_factor > 1));
+
 					//Copy sub-screen to screen buffer
 					if(mem->sub_screen_buffer.size())
 					{
@@ -2008,7 +2180,7 @@ void DMG_LCD::step(int cpu_clock)
 							}
 
 							//HD CGFX framebuffer rendering
-							else if((cgfx::loaded) && (cgfx::scaling_factor > 1))
+							else if((cgfx::loaded) && (cgfx::scaling_factor > 1) && (!gpu_hd_render))
 							{
 								for(int a = 0; a < hd_screen_buffer.size(); a++) { out_pixel_data[a] = hd_screen_buffer[a]; }
 							}
@@ -2041,7 +2213,7 @@ void DMG_LCD::step(int cpu_clock)
 							}
 
 							//HD CGFX framebuffer rendering
-							else if((cgfx::loaded) && (cgfx::scaling_factor > 1))
+							else if((cgfx::loaded) && (cgfx::scaling_factor > 1) && (!gpu_hd_render))
 							{
 								for(int a = 0; a < hd_screen_buffer.size(); a++) { out_pixel_data[a] = hd_screen_buffer[a]; }
 							}
@@ -2050,7 +2222,15 @@ void DMG_LCD::step(int cpu_clock)
 							if(SDL_MUSTLOCK(final_screen)){ SDL_UnlockSurface(final_screen); }
 		
 							//Display final screen buffer - OpenGL
-							if(config::use_opengl) { opengl_blit(); }
+							if(config::use_opengl)
+							{
+								#ifdef GBE_OGL
+								if(gpu_hd_render) { SDL_GL_SwapWindow(window); }
+								else { opengl_blit(); }
+								#else
+								opengl_blit();
+								#endif
+							}
 				
 							//Display final screen buffer - SDL
 							else 
@@ -2069,7 +2249,7 @@ void DMG_LCD::step(int cpu_clock)
 							if((!cgfx::loaded) || (cgfx::scaling_factor <= 1)) { config::render_external_sw(screen_buffer); }
 						
 							//HD CGFX framebuffer rendering
-							else if((cgfx::loaded) && (cgfx::scaling_factor > 1)) { config::render_external_sw(hd_screen_buffer); }
+							else if((cgfx::loaded) && (cgfx::scaling_factor > 1) && (!gpu_hd_render)) { config::render_external_sw(hd_screen_buffer); }
 						}
 
 						else
@@ -2085,7 +2265,7 @@ void DMG_LCD::step(int cpu_clock)
 							}
 
 							//HD CGFX framebuffer rendering
-							else if((cgfx::loaded) && (cgfx::scaling_factor > 1))
+							else if((cgfx::loaded) && (cgfx::scaling_factor > 1) && (!gpu_hd_render))
 							{
 								for(int a = 0; a < hd_screen_buffer.size(); a++) { out_pixel_data[a] = hd_screen_buffer[a]; }
 							}

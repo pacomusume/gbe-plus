@@ -19,6 +19,8 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include "SDL2/SDL.h"
+#include "SDL2/SDL_opengl.h"
 
 #include "common/common.h"
 
@@ -113,6 +115,14 @@ struct dmg_cgfx_data
 	//Per-image readiness flags (indexed same as obj/bg_pixel_data)
 	std::vector<bool> obj_img_ready;
 	std::vector<bool> bg_img_ready;
+
+	//Pre-scaled HD tile surfaces and OpenGL texture data
+	std::vector<SDL_Surface*> obj_tile_surf;
+	std::vector<SDL_Surface*> bg_tile_surf;
+	std::vector<GLuint> hd_textures;
+	std::vector<int> hd_tex_width;
+	std::vector<int> hd_tex_height;
+	bool textures_need_upload = false;
 };
 
 #endif // GB_CGFX_DATA
