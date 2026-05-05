@@ -61,6 +61,7 @@ class DMG_LCD
 
 	//Async image loader
 	void process_pending_imgs(int batch_size);
+	void upload_pending_textures();
 	void stop_image_loading();
 	bool compute_meta_pixels(const std::string& orig_name, std::vector<u32>& out_pixels, bool& out_is_bg);
 	void load_images_background();

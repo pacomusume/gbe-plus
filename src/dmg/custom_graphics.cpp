@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sstream>
 #include <climits>
+#include <cstring>
 
 #include "common/hash.h"
 #include "common/util.h"
@@ -50,6 +51,14 @@ bool DMG_LCD::load_manifest(std::string filename)
 	cgfx_stat.obj_pixel_data.clear();
 	cgfx_stat.bg_pixel_data.clear();
 	cgfx_stat.meta_pixel_data.clear();
+	for(u32 i = 0; i < cgfx_stat.obj_tile_surf.size(); i++) { if(cgfx_stat.obj_tile_surf[i] != NULL) { SDL_FreeSurface(cgfx_stat.obj_tile_surf[i]); } }
+	for(u32 i = 0; i < cgfx_stat.bg_tile_surf.size(); i++) { if(cgfx_stat.bg_tile_surf[i] != NULL) { SDL_FreeSurface(cgfx_stat.bg_tile_surf[i]); } }
+	cgfx_stat.obj_tile_surf.clear();
+	cgfx_stat.bg_tile_surf.clear();
+	cgfx_stat.hd_textures.clear();
+	cgfx_stat.hd_tex_width.clear();
+	cgfx_stat.hd_tex_height.clear();
+	cgfx_stat.textures_need_upload = false;
 
 	//Clear async loader state
 	cgfx_stat.pending_tasks.clear();
@@ -276,6 +285,11 @@ bool DMG_LCD::load_manifest(std::string filename)
 	cgfx_stat.bg_pixel_data.resize(cgfx_stat.bg_hash_list.size());
 	cgfx_stat.obj_img_ready.assign(cgfx_stat.obj_hash_list.size(), false);
 	cgfx_stat.bg_img_ready.assign(cgfx_stat.bg_hash_list.size(), false);
+	cgfx_stat.obj_tile_surf.assign(cgfx_stat.obj_hash_list.size(), NULL);
+	cgfx_stat.bg_tile_surf.assign(cgfx_stat.bg_hash_list.size(), NULL);
+	cgfx_stat.hd_textures.assign(cgfx_stat.m_types.size(), 0);
+	cgfx_stat.hd_tex_width.assign(cgfx_stat.m_types.size(), 0);
+	cgfx_stat.hd_tex_height.assign(cgfx_stat.m_types.size(), 0);
 
 	//Start the background loader thread if there are tasks
 	if(!cgfx_stat.pending_tasks.empty())
@@ -1668,6 +1682,7 @@ void DMG_LCD::load_images_background()
 void DMG_LCD::process_pending_imgs(int batch_size)
 {
 	std::lock_guard<std::mutex> lock(cgfx_stat.decoded_mutex);
+	bool updated_surfaces = false;
 
 	for(int i = 0; i < batch_size && !cgfx_stat.decoded_queue.empty(); i++)
 	{
@@ -1677,15 +1692,132 @@ void DMG_LCD::process_pending_imgs(int batch_size)
 		{
 			cgfx_stat.obj_pixel_data[decoded.img_idx] = std::move(decoded.pixels);
 			cgfx_stat.obj_img_ready[decoded.img_idx] = true;
+
+			if(decoded.img_idx < cgfx_stat.obj_tile_surf.size())
+			{
+				if(cgfx_stat.obj_tile_surf[decoded.img_idx] != NULL) { SDL_FreeSurface(cgfx_stat.obj_tile_surf[decoded.img_idx]); }
+				cgfx_stat.obj_tile_surf[decoded.img_idx] = NULL;
+			}
+
+			const int tex_w = (8 * cgfx::scaling_factor);
+			const int tex_h = (tex_w > 0) ? (cgfx_stat.obj_pixel_data[decoded.img_idx].size() / tex_w) : 0;
+
+			if(tex_w > 0 && tex_h > 0 && ((tex_w * tex_h) == (int)cgfx_stat.obj_pixel_data[decoded.img_idx].size()))
+			{
+				SDL_Surface* tile_surf = SDL_CreateRGBSurfaceWithFormat(0, tex_w, tex_h, 32, SDL_PIXELFORMAT_ARGB8888);
+
+				if(tile_surf != NULL)
+				{
+					if(SDL_MUSTLOCK(tile_surf)) { SDL_LockSurface(tile_surf); }
+					std::memcpy(tile_surf->pixels, cgfx_stat.obj_pixel_data[decoded.img_idx].data(), cgfx_stat.obj_pixel_data[decoded.img_idx].size() * sizeof(u32));
+					if(SDL_MUSTLOCK(tile_surf)) { SDL_UnlockSurface(tile_surf); }
+					if(decoded.img_idx < cgfx_stat.obj_tile_surf.size())
+					{
+						cgfx_stat.obj_tile_surf[decoded.img_idx] = tile_surf;
+						updated_surfaces = true;
+					}
+					else { SDL_FreeSurface(tile_surf); }
+				}
+			}
 		}
 		else if(!decoded.is_obj && decoded.img_idx < cgfx_stat.bg_pixel_data.size())
 		{
 			cgfx_stat.bg_pixel_data[decoded.img_idx] = std::move(decoded.pixels);
 			cgfx_stat.bg_img_ready[decoded.img_idx] = true;
+
+			if(decoded.img_idx < cgfx_stat.bg_tile_surf.size())
+			{
+				if(cgfx_stat.bg_tile_surf[decoded.img_idx] != NULL) { SDL_FreeSurface(cgfx_stat.bg_tile_surf[decoded.img_idx]); }
+				cgfx_stat.bg_tile_surf[decoded.img_idx] = NULL;
+			}
+
+			const int tex_w = (8 * cgfx::scaling_factor);
+			const int tex_h = (tex_w > 0) ? (cgfx_stat.bg_pixel_data[decoded.img_idx].size() / tex_w) : 0;
+
+			if(tex_w > 0 && tex_h > 0 && ((tex_w * tex_h) == (int)cgfx_stat.bg_pixel_data[decoded.img_idx].size()))
+			{
+				SDL_Surface* tile_surf = SDL_CreateRGBSurfaceWithFormat(0, tex_w, tex_h, 32, SDL_PIXELFORMAT_ARGB8888);
+
+				if(tile_surf != NULL)
+				{
+					if(SDL_MUSTLOCK(tile_surf)) { SDL_LockSurface(tile_surf); }
+					std::memcpy(tile_surf->pixels, cgfx_stat.bg_pixel_data[decoded.img_idx].data(), cgfx_stat.bg_pixel_data[decoded.img_idx].size() * sizeof(u32));
+					if(SDL_MUSTLOCK(tile_surf)) { SDL_UnlockSurface(tile_surf); }
+					if(decoded.img_idx < cgfx_stat.bg_tile_surf.size())
+					{
+						cgfx_stat.bg_tile_surf[decoded.img_idx] = tile_surf;
+						updated_surfaces = true;
+					}
+					else { SDL_FreeSurface(tile_surf); }
+				}
+			}
 		}
 
 		cgfx_stat.decoded_queue.pop();
 	}
+
+	if(updated_surfaces) { cgfx_stat.textures_need_upload = true; }
+}
+
+/****** Uploads pre-scaled tile surfaces as OpenGL textures (main thread only) ******/
+void DMG_LCD::upload_pending_textures()
+{
+	if(!cgfx_stat.textures_need_upload) { return; }
+	if(!config::use_opengl) { return; }
+
+	#ifdef GBE_OGL
+
+	if(cgfx_stat.hd_textures.size() < cgfx_stat.m_types.size()) { cgfx_stat.hd_textures.resize(cgfx_stat.m_types.size(), 0); }
+	cgfx_stat.hd_tex_width.assign(cgfx_stat.m_types.size(), 0);
+	cgfx_stat.hd_tex_height.assign(cgfx_stat.m_types.size(), 0);
+
+	for(u32 i = 0; i < cgfx_stat.hd_textures.size(); i++)
+	{
+		if(cgfx_stat.hd_textures[i] != 0)
+		{
+			glDeleteTextures(1, &cgfx_stat.hd_textures[i]);
+			cgfx_stat.hd_textures[i] = 0;
+		}
+	}
+
+	for(u32 i = 0; i < cgfx_stat.m_types.size(); i++)
+	{
+		if(i >= cgfx_stat.m_id.size()) { continue; }
+
+		SDL_Surface* src = NULL;
+		u32 img_idx = cgfx_stat.m_id[i];
+
+		if(cgfx_stat.m_types[i] < 10)
+		{
+			if(img_idx >= cgfx_stat.obj_tile_surf.size()) { continue; }
+			src = cgfx_stat.obj_tile_surf[img_idx];
+		}
+		else
+		{
+			if(img_idx >= cgfx_stat.bg_tile_surf.size()) { continue; }
+			src = cgfx_stat.bg_tile_surf[img_idx];
+		}
+
+		if(src == NULL || src->w <= 0 || src->h <= 0 || src->pixels == NULL) { continue; }
+
+		GLuint tex_id = 0;
+		glGenTextures(1, &tex_id);
+		glBindTexture(GL_TEXTURE_2D, tex_id);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, src->w, src->h, 0, GL_BGRA, GL_UNSIGNED_BYTE, src->pixels);
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		cgfx_stat.hd_textures[i] = tex_id;
+		cgfx_stat.hd_tex_width[i] = src->w;
+		cgfx_stat.hd_tex_height[i] = src->h;
+	}
+
+	#endif
+
+	cgfx_stat.textures_need_upload = false;
 }
 
 /****** Stop the background image loader and drain the decoded queue ******/
