@@ -2002,6 +2002,32 @@ void GB_LCD::render_full_screen() {
 			else if (i == 49)
 				SDL_BlitSurface(buffers[4], NULL, finalscreen, NULL);
 		}
+
+		//Draw overlays on top of the fully composited screen
+		for (u16 i = 0; i < cgfx_stat.overlays.size(); i++)
+		{
+			pack_overlay* ov = &cgfx_stat.overlays[i];
+			if (ov->imgIdx < 0 || ov->imgIdx >= (s16)cgfx_stat.imgs.size() || cgfx_stat.imgs[ov->imgIdx].empty())
+				continue;
+
+			//Check conditions
+			bool allCondPassed = true;
+			for (u16 j = 0; j < ov->condApps.size(); j++)
+			{
+				pack_condition* c = &(cgfx_stat.conds[ov->condApps[j].condIdx]);
+				bool matchResult = c->latest_result;
+				if (ov->condApps[j].negate) matchResult = !matchResult;
+				allCondPassed = allCondPassed && matchResult;
+			}
+			if (!allCondPassed) continue;
+
+			SDL_Rect dstR;
+			dstR.x = ov->x * cgfx::scaling_factor;
+			dstR.y = ov->y * cgfx::scaling_factor;
+			dstR.w = cgfx_stat.imgs[ov->imgIdx][0]->w;
+			dstR.h = cgfx_stat.imgs[ov->imgIdx][0]->h;
+			SDL_BlitSurface(cgfx_stat.imgs[ov->imgIdx][0], NULL, finalscreen, &dstR);
+		}
 	}
 }
 

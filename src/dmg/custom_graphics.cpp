@@ -47,6 +47,7 @@ void GB_LCD::clear_manifest() {
 	{
 		cgfx_stat.bgs[i].clear();
 	}
+	cgfx_stat.overlays.clear();
 
 	SDL_FreeSurface(cgfx_stat.brightnessMod);
 	SDL_FreeSurface(cgfx_stat.alphaCpy);
@@ -554,6 +555,52 @@ bool GB_LCD::load_manifest(std::string filename)
 						cgfx_stat.himgs.push_back(himgs);
 					}
 					cgfx_stat.bgs[bg.priority].push_back(bg);
+				}
+				else if (tagName == "overlay")
+				{
+					pack_overlay ov;
+					ov.imgIdx = -1;
+					ov.x = 0;
+					ov.y = 0;
+
+					std::string token;
+					u8 tokenCnt = 0;
+					while (strRest.length() > 0)
+					{
+						pos = strRest.find(",");
+						if (pos != std::string::npos)
+						{
+							token = util::trimfnc(strRest.substr(0, pos));
+							strRest = strRest.substr(pos + 1, std::string::npos);
+						}
+						else
+						{
+							token = util::trimfnc(strRest);
+							strRest = "";
+						}
+
+						switch (tokenCnt)
+						{
+						case 0:
+							ov.imgIdx = imgIdxOffset[stoi(token)];
+							break;
+						case 1:
+							ov.x = stoi(token);
+							break;
+						case 2:
+							ov.y = stoi(token);
+							break;
+						default:
+							break;
+						}
+
+						tokenCnt++;
+					}
+					if (condNames != "")
+					{
+						processConditionNames(condNames, &(ov.condApps));
+					}
+					cgfx_stat.overlays.push_back(ov);
 				}
 				else if (tagName == "midi") 
 				{
