@@ -107,6 +107,14 @@ struct pack_background
 	u8 priority;
 };
 
+struct pack_overlay
+{
+	std::vector <pack_cond_app> condApps;
+	s16 imgIdx;
+	s16 x;   // game pixel coordinate (0..159)
+	s16 y;   // game pixel coordinate (0..143)
+};
+
 
 
 struct dmg_cgfx_data
@@ -117,6 +125,7 @@ struct dmg_cgfx_data
 	std::vector <pack_condition> conds;
 	std::vector <pack_tile> tiles;
 	std::array < std::vector <pack_background>, 60> bgs;
+	std::vector <pack_overlay> overlays;
 	SDL_Surface* brightnessMod;
 	SDL_Surface* alphaCpy;
 	SDL_Surface* tempStrip;
