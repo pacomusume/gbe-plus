@@ -16,6 +16,7 @@
 #include <string>
 #include <map>
 
+#include "SDL2/SDL_opengl.h"
 #include "common/common.h"
 
 struct dmg_cgfx_data
@@ -65,6 +66,28 @@ struct dmg_cgfx_data
 	std::vector< std::vector<u32> > obj_pixel_data;
 	std::vector< std::vector<u32> > bg_pixel_data;
 	std::vector< std::vector<u32> > meta_pixel_data;
+
+	//GPU textures for CGFX tiles (0 = not created)
+	std::vector<GLuint> obj_textures;
+	std::vector<GLuint> bg_textures;
+
+	//Whether pixel data + GPU texture is loaded for each entry
+	std::vector<bool> obj_loaded;
+	std::vector<bool> bg_loaded;
+
+	//Image dimensions per entry for texture creation
+	std::vector<u32> obj_img_width;
+	std::vector<u32> obj_img_height;
+	std::vector<u32> bg_img_width;
+	std::vector<u32> bg_img_height;
+
+	//LRU tracking - frame counter when each entry was last used
+	std::vector<u32> obj_last_used;
+	std::vector<u32> bg_last_used;
+	u32 cgfx_current_frame;
+
+	//Maximum number of cached tiles (0 = unlimited, default 256)
+	u32 cgfx_max_cached;
 
 	//List of all tiles that have been updated
 	//NOTE - OBJs don't need a list, since the LCD keeps track of OAM updates

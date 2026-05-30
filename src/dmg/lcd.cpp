@@ -176,6 +176,10 @@ void DMG_LCD::reset()
 	cgfx_stat.update_bg = false;
 	cgfx_stat.update_map = false;
 
+	//Initialize lazy loading and LRU fields
+	cgfx_stat.cgfx_current_frame = 0;
+	if(cgfx_stat.cgfx_max_cached == 0) { cgfx_stat.cgfx_max_cached = 256; }
+
 	for(int x = 0; x < 8; x++)
 	{
 		cgfx_stat.bg_pal_max[x] = 0;
@@ -718,6 +722,9 @@ void DMG_LCD::render_cgfx_dmg_bg_scanline(u16 bg_id, bool is_bg)
 	//Grab the ID of this hash to pull custom pixel data
 	u16 bg_tile_id = cgfx_stat.m_id[cgfx_stat.last_id];
 
+	//Ensure CGFX data is loaded (lazy loading + LRU)
+	ensure_cgfx_loaded(cgfx_stat.last_id);
+
 	//Grab bytes from VRAM representing 8x1 pixel data - Used for drawing the raw_scanline
 	u16 tile_data = mem->read_u16(0x8000 + (bg_id << 4) + (tile_line << 1));
 	u8 tile_pixel = 0;
@@ -876,6 +883,9 @@ void DMG_LCD::render_cgfx_gbc_bg_scanline(u16 tile_data, u8 bg_map_attribute, bo
 
 	//Grab the ID of this hash to pull custom pixel data
 	u16 bg_tile_id = cgfx_stat.m_id[cgfx_stat.last_id];
+
+	//Ensure CGFX data is loaded (lazy loading + LRU)
+	ensure_cgfx_loaded(cgfx_stat.last_id);
 
 	//Grab the auto-bright property of this hash
 	u8 auto_bright = cgfx_stat.m_auto_bright[cgfx_stat.last_id];
@@ -1291,6 +1301,9 @@ void DMG_LCD::render_cgfx_dmg_obj_scanline(u8 sprite_id)
 	//Grab the ID of this hash to pull custom pixel data
 	u16 obj_id = cgfx_stat.m_id[cgfx_stat.last_id];
 
+	//Ensure CGFX data is loaded (lazy loading + LRU)
+	ensure_cgfx_loaded(cgfx_stat.last_id);
+
 	u16 tile_pixel = (8 * tile_line);
 	u32 custom_color = 0;
 
@@ -1462,6 +1475,9 @@ void DMG_LCD::render_cgfx_gbc_obj_scanline(u8 sprite_id)
 
 	//Grab the auto-bright property of this hash
 	u8 auto_bright = cgfx_stat.m_auto_bright[cgfx_stat.last_id];
+
+	//Ensure CGFX data is loaded (lazy loading + LRU)
+	ensure_cgfx_loaded(cgfx_stat.last_id);
 
 	u16 tile_pixel = (8 * tile_line);
 	u32 custom_color = 0;
@@ -2081,6 +2097,9 @@ void DMG_LCD::step(int cpu_clock)
 						}
 					}
 				}
+
+				//Update CGFX frame counter for LRU tracking
+				if(cgfx::load_cgfx) { cgfx_stat.cgfx_current_frame++; }
 
 				//Limit framerate
 				if(!config::turbo)

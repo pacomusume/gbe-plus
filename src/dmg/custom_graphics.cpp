@@ -47,6 +47,22 @@ bool DMG_LCD::load_manifest(std::string filename)
 	cgfx_stat.bg_pixel_data.clear();
 	cgfx_stat.meta_pixel_data.clear();
 
+	//Clear GPU texture data
+	cgfx_stat.obj_textures.clear();
+	cgfx_stat.bg_textures.clear();
+	cgfx_stat.obj_loaded.clear();
+	cgfx_stat.bg_loaded.clear();
+	cgfx_stat.obj_img_width.clear();
+	cgfx_stat.obj_img_height.clear();
+	cgfx_stat.bg_img_width.clear();
+	cgfx_stat.bg_img_height.clear();
+	cgfx_stat.obj_last_used.clear();
+	cgfx_stat.bg_last_used.clear();
+	cgfx_stat.cgfx_current_frame = 0;
+
+	//Set default cache size (256 tiles max)
+	cgfx_stat.cgfx_max_cached = 256;
+
 	if(!file.is_open())
 	{
 		std::cout<<"CGFX::Could not open manifest file " << filename << ". Check file path or permissions. \n";
@@ -186,8 +202,27 @@ bool DMG_LCD::load_manifest(std::string filename)
 						return false;
 				}
 
-				//Load image based on filename and hash type
-				if(!load_image_data()) { return false; }
+				//Push placeholder for lazy loading - don't load image yet
+				//Store file path and type already done above
+				//Push empty pixel data placeholder
+				if(type_byte < 10)
+				{
+					cgfx_stat.obj_pixel_data.push_back(std::vector<u32>());
+					cgfx_stat.obj_textures.push_back(0);
+					cgfx_stat.obj_loaded.push_back(false);
+					cgfx_stat.obj_img_width.push_back(0);
+					cgfx_stat.obj_img_height.push_back(0);
+					cgfx_stat.obj_last_used.push_back(0);
+				}
+				else
+				{
+					cgfx_stat.bg_pixel_data.push_back(std::vector<u32>());
+					cgfx_stat.bg_textures.push_back(0);
+					cgfx_stat.bg_loaded.push_back(false);
+					cgfx_stat.bg_img_width.push_back(0);
+					cgfx_stat.bg_img_height.push_back(0);
+					cgfx_stat.bg_last_used.push_back(0);
+				}
 
 				//EXT_VRAM_ADDR
 				if(vram_test)
@@ -1478,6 +1513,10 @@ void DMG_LCD::invalidate_cgfx()
 	cgfx_stat.update_bg = true;
 	cgfx_stat.update_map = true;
 
+	//Reset LRU tracking on state load
+	cgfx_stat.cgfx_current_frame = 0;
+	if(cgfx_stat.cgfx_max_cached == 0) { cgfx_stat.cgfx_max_cached = 256; }
+
 	//Recalculate palette max-min BG brightness
 	for(u32 y = 0; y < 8; y++)
 	{
@@ -1505,4 +1544,302 @@ void DMG_LCD::invalidate_cgfx()
 			if(brightness < cgfx_stat.obj_pal_min[y]) { cgfx_stat.obj_pal_min[y] = brightness; }
 		}
 	}
+}
+
+/****** Loads image data for a specific hash ID (lazy loading) ******/
+bool DMG_LCD::load_image_data_by_id(u32 hash_id)
+{
+	if(hash_id >= cgfx_stat.m_files.size()) { return false; }
+
+	std::string filename = config::data_path + cgfx_stat.m_files[hash_id];
+	u8 type_byte = cgfx_stat.m_types[hash_id];
+	u16 pixel_id = cgfx_stat.m_id[hash_id];
+
+	SDL_Surface* source = SDL_LoadBMP(filename.c_str());
+
+	if(source == NULL)
+	{
+		//Attempt to find the meta tile data instead
+		//For lazy loading, meta data should already be loaded
+		std::cout<<"GBE::CGFX(Lazy) - Could not load " << filename << "\n";
+		return false;
+	}
+
+	int custom_bpp = source->format->BitsPerPixel;
+
+	if(custom_bpp != 24)
+	{
+		std::cout<<"GBE::CGFX(Lazy) - " << filename << " has " << custom_bpp << "bpp instead of 24bpp \n";
+		SDL_FreeSurface(source);
+		return false;
+	}
+
+	//Verify source width and height are multiples of 8
+	if((source->w % 8) != 0)
+	{
+		std::cout<<"GBE::CGFX(Lazy) - " << filename << " has irregular width -> " << source->w << "\n";
+		SDL_FreeSurface(source);
+		return false;
+	}
+
+	if((source->h % 8) != 0)
+	{
+		std::cout<<"GBE::CGFX(Lazy) - " << filename << " has irregular height -> " << source->h << "\n";
+		SDL_FreeSurface(source);
+		return false;
+	}
+
+	std::vector<u32> cgfx_pixels;
+	cgfx_pixels.reserve(source->w * source->h);
+
+	//Load 24-bit data and convert to 32-bit ARGB
+	u8* pixel_data = (u8*)source->pixels;
+
+	for(int a = 0, b = 0; a < (source->w * source->h); a++, b+=3)
+	{
+		cgfx_pixels.push_back(0xFF000000 | (pixel_data[b+2] << 16) | (pixel_data[b+1] << 8) | (pixel_data[b]));
+	}
+
+	u32 img_w = source->w;
+	u32 img_h = source->h;
+
+	//Store OBJ pixel data
+	if(type_byte < 10)
+	{
+		if(pixel_id < cgfx_stat.obj_pixel_data.size())
+		{
+			cgfx_stat.obj_pixel_data[pixel_id] = cgfx_pixels;
+			cgfx_stat.obj_loaded[pixel_id] = true;
+			cgfx_stat.obj_img_width[pixel_id] = img_w;
+			cgfx_stat.obj_img_height[pixel_id] = img_h;
+			cgfx_stat.obj_last_used[pixel_id] = cgfx_stat.cgfx_current_frame;
+		}
+	}
+	//Store BG pixel data
+	else
+	{
+		if(pixel_id < cgfx_stat.bg_pixel_data.size())
+		{
+			cgfx_stat.bg_pixel_data[pixel_id] = cgfx_pixels;
+			cgfx_stat.bg_loaded[pixel_id] = true;
+			cgfx_stat.bg_img_width[pixel_id] = img_w;
+			cgfx_stat.bg_img_height[pixel_id] = img_h;
+			cgfx_stat.bg_last_used[pixel_id] = cgfx_stat.cgfx_current_frame;
+		}
+	}
+
+	//Create OpenGL texture if OpenGL is initialized
+	#ifdef GBE_OGL
+	if(gl_context)
+	{
+		create_cgfx_texture(hash_id, type_byte, img_w, img_h, &cgfx_pixels[0]);
+	}
+	#endif
+
+	SDL_FreeSurface(source);
+	return true;
+}
+
+/****** Ensures CGFX data is loaded for a given hash ID (lazy loading + LRU) ******/
+void DMG_LCD::ensure_cgfx_loaded(u32 hash_id)
+{
+	if(hash_id >= cgfx_stat.m_types.size()) { return; }
+
+	u8 type_byte = cgfx_stat.m_types[hash_id];
+	u16 pixel_id = cgfx_stat.m_id[hash_id];
+
+	bool is_loaded = false;
+
+	if(type_byte < 10)
+	{
+		if(pixel_id < cgfx_stat.obj_loaded.size()) { is_loaded = cgfx_stat.obj_loaded[pixel_id]; }
+	}
+	else
+	{
+		if(pixel_id < cgfx_stat.bg_loaded.size()) { is_loaded = cgfx_stat.bg_loaded[pixel_id]; }
+	}
+
+	//If not loaded, load now
+	if(!is_loaded)
+	{
+		//Evict old entries if cache is full
+		evict_lru_entries();
+
+		load_image_data_by_id(hash_id);
+	}
+	//Update LRU timestamp
+	else
+	{
+		if(type_byte < 10)
+		{
+			if(pixel_id < cgfx_stat.obj_last_used.size()) { cgfx_stat.obj_last_used[pixel_id] = cgfx_stat.cgfx_current_frame; }
+		}
+		else
+		{
+			if(pixel_id < cgfx_stat.bg_last_used.size()) { cgfx_stat.bg_last_used[pixel_id] = cgfx_stat.cgfx_current_frame; }
+		}
+	}
+}
+
+/****** Evicts least-recently-used CGFX entries to stay within cache limit ******/
+void DMG_LCD::evict_lru_entries()
+{
+	if(cgfx_stat.cgfx_max_cached == 0) { return; }
+
+	//Count currently loaded entries
+	u32 obj_count = 0;
+	for(u32 x = 0; x < cgfx_stat.obj_loaded.size(); x++)
+	{
+		if(cgfx_stat.obj_loaded[x]) { obj_count++; }
+	}
+
+	u32 bg_count = 0;
+	for(u32 x = 0; x < cgfx_stat.bg_loaded.size(); x++)
+	{
+		if(cgfx_stat.bg_loaded[x]) { bg_count++; }
+	}
+
+	u32 total_loaded = obj_count + bg_count;
+
+	//If under limit, no eviction needed
+	if(total_loaded < cgfx_stat.cgfx_max_cached) { return; }
+
+	//Evict entries until we're under the limit
+	//Start by evicting 25% of max cache or enough to get under limit
+	u32 to_evict = (total_loaded - cgfx_stat.cgfx_max_cached) + (cgfx_stat.cgfx_max_cached / 4);
+	if(to_evict > total_loaded) { to_evict = total_loaded; }
+
+	//Build a list of (frame, type, id) for sorting by age
+	struct lru_entry { u32 frame; u8 type; u32 id; };
+	std::vector<lru_entry> lru_list;
+
+	for(u32 x = 0; x < cgfx_stat.obj_loaded.size(); x++)
+	{
+		if(cgfx_stat.obj_loaded[x])
+		{
+			lru_entry e;
+			e.frame = cgfx_stat.obj_last_used[x];
+			e.type = 1; //OBJ
+			e.id = x;
+			lru_list.push_back(e);
+		}
+	}
+
+	for(u32 x = 0; x < cgfx_stat.bg_loaded.size(); x++)
+	{
+		if(cgfx_stat.bg_loaded[x])
+		{
+			lru_entry e;
+			e.frame = cgfx_stat.bg_last_used[x];
+			e.type = 2; //BG
+			e.id = x;
+			lru_list.push_back(e);
+		}
+	}
+
+	//Sort by frame (oldest first)
+	for(u32 i = 0; i < lru_list.size(); i++)
+	{
+		for(u32 j = i + 1; j < lru_list.size(); j++)
+		{
+			if(lru_list[j].frame < lru_list[i].frame)
+			{
+				lru_entry temp = lru_list[i];
+				lru_list[i] = lru_list[j];
+				lru_list[j] = temp;
+			}
+		}
+	}
+
+	//Evict oldest entries
+	for(u32 x = 0; x < to_evict && x < lru_list.size(); x++)
+	{
+		if(lru_list[x].type == 1) //OBJ
+		{
+			u32 id = lru_list[x].id;
+
+			//Delete GPU texture
+			#ifdef GBE_OGL
+			if(gl_context && id < cgfx_stat.obj_textures.size() && cgfx_stat.obj_textures[id] != 0)
+			{
+				glDeleteTextures(1, &cgfx_stat.obj_textures[id]);
+				cgfx_stat.obj_textures[id] = 0;
+			}
+			#endif
+
+			//Free CPU pixel data
+			if(id < cgfx_stat.obj_pixel_data.size()) { cgfx_stat.obj_pixel_data[id].clear(); }
+			if(id < cgfx_stat.obj_loaded.size()) { cgfx_stat.obj_loaded[id] = false; }
+		}
+		else //BG
+		{
+			u32 id = lru_list[x].id;
+
+			//Delete GPU texture
+			#ifdef GBE_OGL
+			if(gl_context && id < cgfx_stat.bg_textures.size() && cgfx_stat.bg_textures[id] != 0)
+			{
+				glDeleteTextures(1, &cgfx_stat.bg_textures[id]);
+				cgfx_stat.bg_textures[id] = 0;
+			}
+			#endif
+
+			//Free CPU pixel data
+			if(id < cgfx_stat.bg_pixel_data.size()) { cgfx_stat.bg_pixel_data[id].clear(); }
+			if(id < cgfx_stat.bg_loaded.size()) { cgfx_stat.bg_loaded[id] = false; }
+		}
+	}
+}
+
+/****** Creates an OpenGL texture for a CGFX tile ******/
+void DMG_LCD::create_cgfx_texture(u32 hash_id, u8 type, u32 width, u32 height, u32* pixel_data)
+{
+	#ifdef GBE_OGL
+	if(!gl_context) { return; }
+
+	u16 pixel_id = cgfx_stat.m_id[hash_id];
+	GLuint texture_id = 0;
+
+	glGenTextures(1, &texture_id);
+	glBindTexture(GL_TEXTURE_2D, texture_id);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_BGRA, GL_UNSIGNED_BYTE, pixel_data);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	if(type < 10)
+	{
+		if(pixel_id < cgfx_stat.obj_textures.size()) { cgfx_stat.obj_textures[pixel_id] = texture_id; }
+	}
+	else
+	{
+		if(pixel_id < cgfx_stat.bg_textures.size()) { cgfx_stat.bg_textures[pixel_id] = texture_id; }
+	}
+	#endif
+}
+
+/****** Deletes an OpenGL texture for a CGFX tile ******/
+void DMG_LCD::delete_cgfx_texture(u32 hash_id, u8 type)
+{
+	#ifdef GBE_OGL
+	if(!gl_context) { return; }
+
+	u16 pixel_id = cgfx_stat.m_id[hash_id];
+	GLuint texture_id = 0;
+
+	if(type < 10)
+	{
+		if(pixel_id < cgfx_stat.obj_textures.size()) { texture_id = cgfx_stat.obj_textures[pixel_id]; cgfx_stat.obj_textures[pixel_id] = 0; }
+	}
+	else
+	{
+		if(pixel_id < cgfx_stat.bg_textures.size()) { texture_id = cgfx_stat.bg_textures[pixel_id]; cgfx_stat.bg_textures[pixel_id] = 0; }
+	}
+
+	if(texture_id != 0) { glDeleteTextures(1, &texture_id); }
+	#endif
 }

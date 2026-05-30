@@ -36,8 +36,13 @@ class DMG_LCD
 	//Custom GFX functions
 	bool load_manifest(std::string filename);
 	bool load_image_data();
+	bool load_image_data_by_id(u32 hash_id);
 	bool load_meta_data();
 	bool find_meta_data();
+	void ensure_cgfx_loaded(u32 hash_id);
+	void evict_lru_entries();
+	void create_cgfx_texture(u32 hash_id, u8 type, u32 width, u32 height, u32* pixel_data);
+	void delete_cgfx_texture(u32 hash_id, u8 type);
 
 	void dump_dmg_obj(u8 obj_index);
 	void dump_dmg_bg(u16 bg_index);
