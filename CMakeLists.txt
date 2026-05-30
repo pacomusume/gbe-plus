@@ -15,7 +15,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/CMakeTests)
 
 find_package(SDL2 REQUIRED)
 if (SDL2_FOUND)
-    include_directories(${SDL2_INCLUDE_DIRS})
+    include_directories(${SDL2_INCLUDE_DIR})
 	
 	if (WIN32 AND MSVC)
 		SET(SDL2MAIN_LIBRARY CACHE STRING "SDL2main library")
