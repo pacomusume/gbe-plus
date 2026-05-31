@@ -774,7 +774,11 @@ bool parse_cli_args()
 				else
 				{
 					config::override_audio_driver = config::cli_args[x];
+#ifdef _WIN32
+					_putenv_s("SDL_AUDIODRIVER", config::override_audio_driver.c_str());
+#else
 					setenv("SDL_AUDIODRIVER", config::override_audio_driver.c_str(), 1);
+#endif
 				}
 			}
 
@@ -1780,7 +1784,11 @@ bool parse_ini_file()
 				if(first_char != "#")
 				{
 					config::override_audio_driver = ini_item;
+#ifdef _WIN32
+					_putenv_s("SDL_AUDIODRIVER", config::override_audio_driver.c_str());
+#else
 					setenv("SDL_AUDIODRIVER", config::override_audio_driver.c_str(), 1);
+#endif
 				}
 
 				else
