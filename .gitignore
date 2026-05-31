@@ -4,6 +4,7 @@
 *.pdb
 *.tlog
 *.log
+build/
 .vs/gbe-plus/v16/.suo
 .vs/gbe-plus/v16/Browse.VC.db
 .vs/gbe-plus/v16/Browse.VC.db-shm

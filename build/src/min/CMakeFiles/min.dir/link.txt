@@ -1,2 +1,0 @@
-/usr/bin/ar qc libmin.a CMakeFiles/min.dir/core.cpp.o CMakeFiles/min.dir/mmu.cpp.o CMakeFiles/min.dir/s1c88.cpp.o CMakeFiles/min.dir/debug.cpp.o CMakeFiles/min.dir/lcd.cpp.o CMakeFiles/min.dir/opengl.cpp.o CMakeFiles/min.dir/gamepad.cpp.o CMakeFiles/min.dir/infrared.cpp.o CMakeFiles/min.dir/apu.cpp.o
-/usr/bin/ranlib libmin.a
