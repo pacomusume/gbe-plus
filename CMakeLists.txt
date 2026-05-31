@@ -32,6 +32,12 @@ endif()
 option(LINK_CABLE "Enable link cable emulation (requires SDL2_net)" OFF)
 option(USE_SDL2_IMAGE "Use SDL2_image for PNG/BMP loading (for CGFX)" ON)
 
+if (USE_SDL2_IMAGE)
+    if(SDL2_IMAGE_INCLUDE_DIR)
+        include_directories(${SDL2_IMAGE_INCLUDE_DIR})
+    endif()
+endif()
+
 if (LINK_CABLE)
     find_package(SDL2NET REQUIRED)
     if (SDL2NET_FOUND)
