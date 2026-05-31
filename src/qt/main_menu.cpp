@@ -812,9 +812,6 @@ void main_menu::boot_game()
 		if(config::use_opengl) { hw_screen->resize((base_width * config::scaling_factor), (base_height * config::scaling_factor)); }
 		else { sw_screen->resize((base_width * config::scaling_factor), (base_height * config::scaling_factor)); }
 
-		//Disable CGFX menu
-		findChild<QAction*>("custom_gfx_action")->setEnabled(false);
-
 		//Disable debugging menu
 		findChild<QAction*>("debugging_action")->setEnabled(false);
 	}
