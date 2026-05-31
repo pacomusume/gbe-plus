@@ -1,11 +1,28 @@
 include_directories(.)
 
+option(BUILD_GBA "Build GBA emulation" OFF)
+option(BUILD_NDS "Build NDS emulation" OFF)
+option(BUILD_SGB "Build SGB emulation" OFF)
+option(BUILD_MIN "Build Pokemon Mini emulation" OFF)
+
 add_subdirectory(common)
-add_subdirectory(gba)
 add_subdirectory(dmg)
-add_subdirectory(sgb)
-add_subdirectory(nds)
-add_subdirectory(min)
+
+if(BUILD_GBA)
+    add_subdirectory(gba)
+endif()
+
+if(BUILD_SGB)
+    add_subdirectory(sgb)
+endif()
+
+if(BUILD_NDS)
+    add_subdirectory(nds)
+endif()
+
+if(BUILD_MIN)
+    add_subdirectory(min)
+endif()
 
 if(QT_GUI)
     add_subdirectory(qt)
@@ -17,7 +34,28 @@ SET(USER_HOME $ENV{HOME} CACHE STRING "Target User Home")
 SET(USER $ENV{USER} CACHE STRING "Target User")
 
 add_executable(gbe_plus ${SRCS})
-target_link_libraries(gbe_plus common gba dmg sgb nds min)
+
+if(BUILD_GBA)
+    target_compile_definitions(gbe_plus PRIVATE GBE_BUILD_GBA)
+    target_link_libraries(gbe_plus gba)
+endif()
+
+if(BUILD_SGB)
+    target_compile_definitions(gbe_plus PRIVATE GBE_BUILD_SGB)
+    target_link_libraries(gbe_plus sgb)
+endif()
+
+if(BUILD_NDS)
+    target_compile_definitions(gbe_plus PRIVATE GBE_BUILD_NDS)
+    target_link_libraries(gbe_plus nds)
+endif()
+
+if(BUILD_MIN)
+    target_compile_definitions(gbe_plus PRIVATE GBE_BUILD_MIN)
+    target_link_libraries(gbe_plus min)
+endif()
+
+target_link_libraries(gbe_plus common dmg)
 target_link_libraries(gbe_plus ${SDL2_LIBRARY} ${SDL2MAIN_LIBRARY})
 
 if (LINK_CABLE)

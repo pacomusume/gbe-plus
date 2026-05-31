@@ -8,11 +8,19 @@
 //
 // This is main. It all begins here ;)
 
+#ifdef GBE_BUILD_GBA
 #include "gba/core.h"
+#endif
 #include "dmg/core.h"
+#ifdef GBE_BUILD_SGB
 #include "sgb/core.h"
+#endif
+#ifdef GBE_BUILD_NDS
 #include "nds/core.h"
+#endif
+#ifdef GBE_BUILD_MIN
 #include "min/core.h"
+#endif
 #include "common/config.h"
 
 #include <SDL2/SDL_main.h>
@@ -53,33 +61,46 @@ int main(int argc, char* args[])
 	config::gb_type = get_system_type_from_file(config::rom_file);
 
 	//GBA core
+#ifdef GBE_BUILD_GBA
 	if (config::gb_type == 3)
 	{
 		gbe_plus = new AGB_core();
 	}
-
+	else 
+#endif
 	//DMG-GBC core
-	else if ((config::gb_type >= 0) && (config::gb_type <= 2))
+	if ((config::gb_type >= 0) && (config::gb_type <= 2))
 	{
 		gbe_plus = new DMG_core();
 	}
 
 	//Super Game Boy (SGB1 and SGB2)
+#ifdef GBE_BUILD_SGB
 	else if ((config::gb_type == 5) || (config::gb_type == 6))
 	{
 		gbe_plus = new SGB_core();
 	}
+#endif
 
 	//Pokemon Mini core
+#ifdef GBE_BUILD_MIN
 	else if (config::gb_type == 7)
 	{
 		gbe_plus = new MIN_core();
 	}
+#endif
 
 	//NDS core
-	else
+#ifdef GBE_BUILD_NDS
+	else if (config::gb_type == 4)
 	{
 		gbe_plus = new NTR_core();
+	}
+#endif
+	//Fallback to DMG if unsupported core is not built
+	else
+	{
+		gbe_plus = new DMG_core();
 	}
 
 	//Read BIOS file optionally
@@ -104,10 +125,12 @@ int main(int argc, char* args[])
 	if (!gbe_plus->read_file(config::rom_file)) { return 0; }
 
 	//Read firmware optionally (NDS)
+#ifdef GBE_BUILD_NDS
 	if ((config::use_firmware) && (config::gb_type == 4))
 	{
 		if (!gbe_plus->read_firmware(config::nds_firmware_path)) { return 0; }
 	}
+#endif
 
 	//Engage the core
 	gbe_plus->start();
