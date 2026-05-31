@@ -66,8 +66,8 @@ if (USE_OGL)
     target_link_libraries(gbe_plus ${OPENGL_gl_LIBRARY})
 endif()
 
-if (WIN32)
-    target_link_libraries(gbe_plus ${GLEW_LIBRARY})
+if (WIN32 AND USE_OGL)
+    target_link_libraries(gbe_plus ${GLEW_LIBRARIES})
 endif()
 
 if(UNIX AND NOT APPLE)
