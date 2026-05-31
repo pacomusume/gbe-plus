@@ -408,6 +408,124 @@ bool DMG_LCD::load_meta_data()
 	return true;
 }
 
+/****** Finds meta data from the meta tile for lazy-loaded entries ******/
+bool DMG_LCD::find_meta_data_by_id(u32 hash_id)
+{
+	if(hash_id >= cgfx_stat.m_files.size()) { return false; }
+
+	std::string original_name = cgfx_stat.m_files[hash_id];
+	u8 type_byte = cgfx_stat.m_types[hash_id];
+	u16 pixel_id = cgfx_stat.m_id[hash_id];
+	
+	//Find the base name for the entry
+	std::string base_name = "";
+	std::string base_number = "";
+	bool is_meta_tile = false;
+	u32 meta_tile_number = 0;
+
+	//Parse the entry in reverse.
+	//1st underscore indicates metatile number, any others are part of the base name
+	for(int x = original_name.size() - 1; x >= 0; x--)
+	{
+		std::string temp = "";
+		temp += original_name[x];
+
+		if(temp == "_") { is_meta_tile = true; }
+
+		if(is_meta_tile) { base_name = temp + base_name; }
+		else { base_number = temp + base_number; }
+	}
+
+	//Chop off last underscore separating base name and meta tile number
+	base_name = base_name.substr(0, base_name.size() - 1);
+
+	//Return false if original name does not contain a base name for a metatile
+	if(!is_meta_tile) { return false; }
+
+	//Parse the meta tile number from the original name
+	util::from_str(base_number, meta_tile_number);
+
+	//Search metatile name entries for a match and grab id
+	u32 meta_id = 0;
+	bool found_match = false;
+
+	for(int x = 0; x < cgfx_stat.m_meta_names.size(); x++)
+	{
+		if(cgfx_stat.m_meta_names[x] == base_name)
+		{
+			found_match = true;
+			meta_id = x;
+			break;
+		}
+	}
+
+	if(!found_match) { return false; }
+
+	//Abort if invalid metatile form
+	if(cgfx_stat.m_meta_forms[meta_id] > 3)
+	{
+		std::cout<<"GBE::CGFX - Invalid metatile form : " << (u32)cgfx_stat.m_meta_forms[meta_id] << "\n";
+		return false;
+	}
+
+	//Grab meta pixel data
+	std::vector<u32> cgfx_pixels;
+
+	//Find start position inside meta pixel data
+	u32 width = cgfx_stat.m_meta_width[meta_id];
+	u32 height = cgfx_stat.m_meta_height[meta_id];
+	
+	u32 tile_w = width / (8 * cgfx::scaling_factor);
+	u32 tile_h = (cgfx_stat.m_meta_forms[meta_id] != 2) ? height / (8 * cgfx::scaling_factor) : height / (16 * cgfx::scaling_factor);
+
+	u32 pixel_w = width / tile_w;
+	u32 pixel_h = height / tile_h;
+
+	u32 pos = (width * pixel_h) * (meta_tile_number / tile_w);
+	pos += (meta_tile_number % tile_w) * pixel_w;
+
+	for(int y = 0; y < pixel_h; y++)
+	{
+		for(int x = 0; x < pixel_w; x++)
+		{
+			u32 meta_pixel = cgfx_stat.meta_pixel_data[meta_id][pos++];
+			cgfx_pixels.push_back(meta_pixel);
+		}
+
+		pos -= pixel_w;
+		pos += width;
+	}
+
+	u32 img_w = pixel_w;
+	u32 img_h = pixel_h;
+
+	//Store OBJ pixel data
+	if(type_byte < 10)
+	{
+		if(pixel_id < cgfx_stat.obj_pixel_data.size())
+		{
+			cgfx_stat.obj_pixel_data[pixel_id] = cgfx_pixels;
+			cgfx_stat.obj_loaded[pixel_id] = true;
+			cgfx_stat.obj_img_width[pixel_id] = img_w;
+			cgfx_stat.obj_img_height[pixel_id] = img_h;
+			cgfx_stat.obj_last_used[pixel_id] = cgfx_stat.cgfx_current_frame;
+		}
+	}
+	else
+	{
+		if(pixel_id < cgfx_stat.bg_pixel_data.size())
+		{
+			cgfx_stat.bg_pixel_data[pixel_id] = cgfx_pixels;
+			cgfx_stat.bg_loaded[pixel_id] = true;
+			cgfx_stat.bg_img_width[pixel_id] = img_w;
+			cgfx_stat.bg_img_height[pixel_id] = img_h;
+			cgfx_stat.bg_last_used[pixel_id] = cgfx_stat.cgfx_current_frame;
+		}
+	}
+
+	return true;
+}
+
 /****** Finds meta data from the meta tile for regular manifest entries ******/
 bool DMG_LCD::find_meta_data()
 {
@@ -1561,7 +1679,11 @@ bool DMG_LCD::load_image_data_by_id(u32 hash_id)
 	if(source == NULL)
 	{
 		//Attempt to find the meta tile data instead
-		//For lazy loading, meta data should already be loaded
+		if(find_meta_data_by_id(hash_id))
+		{
+			return true;
+		}
+
 		std::cout<<"GBE::CGFX(Lazy) - Could not load " << filename << "\n";
 		return false;
 	}

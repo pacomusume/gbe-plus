@@ -39,6 +39,7 @@ class DMG_LCD
 	bool load_image_data_by_id(u32 hash_id);
 	bool load_meta_data();
 	bool find_meta_data();
+	bool find_meta_data_by_id(u32 hash_id);
 	void ensure_cgfx_loaded(u32 hash_id);
 	void evict_lru_entries();
 	void create_cgfx_texture(u32 hash_id, u8 type, u32 width, u32 height, u32* pixel_data);
