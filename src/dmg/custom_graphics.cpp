@@ -60,6 +60,7 @@ bool DMG_LCD::load_manifest(std::string filename)
 	cgfx_stat.obj_last_used.clear();
 	cgfx_stat.bg_last_used.clear();
 	cgfx_stat.cgfx_current_frame = 0;
+	cgfx_stat.pending_loads.clear();
 
 	//Set default cache size (256 tiles max)
 	cgfx_stat.cgfx_max_cached = 256;
@@ -1634,6 +1635,7 @@ void DMG_LCD::invalidate_cgfx()
 
 	//Reset LRU tracking on state load
 	cgfx_stat.cgfx_current_frame = 0;
+	cgfx_stat.pending_loads.clear();
 	if(cgfx_stat.cgfx_max_cached == 0) { cgfx_stat.cgfx_max_cached = 256; }
 
 	//Recalculate palette max-min BG brightness
@@ -1778,17 +1780,19 @@ void DMG_LCD::ensure_cgfx_loaded(u32 hash_id)
 		if(pixel_id < cgfx_stat.bg_loaded.size()) { is_loaded = cgfx_stat.bg_loaded[pixel_id]; }
 	}
 
-	//If not loaded, load now
+	//If not loaded, defer to VBlank loading queue
 	if(!is_loaded)
 	{
-		//Evict old entries if cache is full
-		evict_lru_entries();
-
-		if(!load_image_data_by_id(hash_id))
+		//Check if already in pending queue
+		bool already_pending = false;
+		for(u32 x = 0; x < cgfx_stat.pending_loads.size(); x++)
 		{
-			//Loading failed, mark as not loaded so we don't keep retrying every frame
-			//The tile will render with original graphics
-			return;
+			if(cgfx_stat.pending_loads[x] == hash_id) { already_pending = true; break; }
+		}
+
+		if(!already_pending)
+		{
+			cgfx_stat.pending_loads.push_back(hash_id);
 		}
 	}
 	//Update LRU timestamp

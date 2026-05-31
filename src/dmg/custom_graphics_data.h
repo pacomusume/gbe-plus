@@ -89,6 +89,9 @@ struct dmg_cgfx_data
 	//Maximum number of cached tiles (0 = unlimited, default 256)
 	u32 cgfx_max_cached;
 
+	//Deferred loading queue - tiles to load in VBlank
+	std::vector<u32> pending_loads;
+
 	//List of all tiles that have been updated
 	//NOTE - OBJs don't need a list, since the LCD keeps track of OAM updates
 	//The LCD does not keep track of BG updates, however.

@@ -178,6 +178,7 @@ void DMG_LCD::reset()
 
 	//Initialize lazy loading and LRU fields
 	cgfx_stat.cgfx_current_frame = 0;
+	cgfx_stat.pending_loads.clear();
 	if(cgfx_stat.cgfx_max_cached == 0) { cgfx_stat.cgfx_max_cached = 256; }
 
 	for(int x = 0; x < 8; x++)
@@ -2112,6 +2113,28 @@ void DMG_LCD::step(int cpu_clock)
 
 				//Update CGFX frame counter for LRU tracking
 				if(cgfx::load_cgfx) { cgfx_stat.cgfx_current_frame++; }
+
+				//Process deferred CGFX tile loading in VBlank (avoids frame drops)
+				if(cgfx::load_cgfx && !cgfx_stat.pending_loads.empty())
+				{
+					evict_lru_entries();
+
+					//Load up to 4 tiles per frame to avoid VBlank timeout
+					u32 load_count = 0;
+					for(u32 x = 0; x < cgfx_stat.pending_loads.size() && load_count < 4; )
+					{
+						if(load_image_data_by_id(cgfx_stat.pending_loads[x]))
+						{
+							load_count++;
+							cgfx_stat.pending_loads.erase(cgfx_stat.pending_loads.begin() + x);
+						}
+						else
+						{
+							//Failed - remove from queue to avoid retrying forever
+							cgfx_stat.pending_loads.erase(cgfx_stat.pending_loads.begin() + x);
+						}
+					}
+				}
 
 				//Limit framerate
 				if(!config::turbo)
