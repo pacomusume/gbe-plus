@@ -1662,7 +1662,12 @@ void DMG_LCD::ensure_cgfx_loaded(u32 hash_id)
 		//Evict old entries if cache is full
 		evict_lru_entries();
 
-		load_image_data_by_id(hash_id);
+		if(!load_image_data_by_id(hash_id))
+		{
+			//Loading failed, mark as not loaded so we don't keep retrying every frame
+			//The tile will render with original graphics
+			return;
+		}
 	}
 	//Update LRU timestamp
 	else

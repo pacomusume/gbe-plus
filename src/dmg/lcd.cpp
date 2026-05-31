@@ -725,6 +725,9 @@ void DMG_LCD::render_cgfx_dmg_bg_scanline(u16 bg_id, bool is_bg)
 	//Ensure CGFX data is loaded (lazy loading + LRU)
 	ensure_cgfx_loaded(cgfx_stat.last_id);
 
+	//Safety check - skip if pixel data failed to load
+	if(bg_tile_id >= cgfx_stat.bg_pixel_data.size() || cgfx_stat.bg_pixel_data[bg_tile_id].empty()) { return; }
+
 	//Grab bytes from VRAM representing 8x1 pixel data - Used for drawing the raw_scanline
 	u16 tile_data = mem->read_u16(0x8000 + (bg_id << 4) + (tile_line << 1));
 	u8 tile_pixel = 0;
@@ -886,6 +889,9 @@ void DMG_LCD::render_cgfx_gbc_bg_scanline(u16 tile_data, u8 bg_map_attribute, bo
 
 	//Ensure CGFX data is loaded (lazy loading + LRU)
 	ensure_cgfx_loaded(cgfx_stat.last_id);
+
+	//Safety check - skip if pixel data failed to load
+	if(bg_tile_id >= cgfx_stat.bg_pixel_data.size() || cgfx_stat.bg_pixel_data[bg_tile_id].empty()) { return; }
 
 	//Grab the auto-bright property of this hash
 	u8 auto_bright = cgfx_stat.m_auto_bright[cgfx_stat.last_id];
@@ -1304,6 +1310,9 @@ void DMG_LCD::render_cgfx_dmg_obj_scanline(u8 sprite_id)
 	//Ensure CGFX data is loaded (lazy loading + LRU)
 	ensure_cgfx_loaded(cgfx_stat.last_id);
 
+	//Safety check - skip if pixel data failed to load
+	if(obj_id >= cgfx_stat.obj_pixel_data.size() || cgfx_stat.obj_pixel_data[obj_id].empty()) { return; }
+
 	u16 tile_pixel = (8 * tile_line);
 	u32 custom_color = 0;
 
@@ -1478,6 +1487,9 @@ void DMG_LCD::render_cgfx_gbc_obj_scanline(u8 sprite_id)
 
 	//Ensure CGFX data is loaded (lazy loading + LRU)
 	ensure_cgfx_loaded(cgfx_stat.last_id);
+
+	//Safety check - skip if pixel data failed to load
+	if(obj_id >= cgfx_stat.obj_pixel_data.size() || cgfx_stat.obj_pixel_data[obj_id].empty()) { return; }
 
 	u16 tile_pixel = (8 * tile_line);
 	u32 custom_color = 0;
