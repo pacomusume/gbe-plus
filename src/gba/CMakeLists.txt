@@ -3,6 +3,7 @@ set(SRCS
 	arm7.cpp
 	arm_instr.cpp
 	core.cpp
+	custom_graphics.cpp
 	dma.cpp
 	gamepad.cpp
 	lcd.cpp

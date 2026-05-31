@@ -13,6 +13,7 @@
 
 #include "lcd.h"
 #include "common/util.h"
+#include "common/cgfx_common.h"
 
 /****** LCD Constructor ******/
 AGB_LCD::AGB_LCD()
@@ -162,6 +163,21 @@ void AGB_LCD::reset()
 
 	max_fullscreen_ratio = 2;
 	power_antenna_osd = false;
+
+	//CGFX setup
+	for(int b = 0; b < 4; b++)
+	{
+		cgfx_stat.current_bg_hash[b].clear();
+		cgfx_stat.current_bg_hash[b].resize(1024, "");
+		cgfx_stat.bg_update_list[b].clear();
+		cgfx_stat.bg_update_list[b].resize(1024, false);
+	}
+	cgfx_stat.current_obj_hash.clear();
+	cgfx_stat.current_obj_hash.resize(128, "");
+	cgfx_stat.update_bg = false;
+	cgfx_stat.cgfx_current_frame = 0;
+	cgfx_stat.pending_loads.clear();
+	if(cgfx_stat.cgfx_max_cached == 0) { cgfx_stat.cgfx_max_cached = 512; }
 }
 
 /****** Initialize LCD with SDL ******/
@@ -209,6 +225,12 @@ bool AGB_LCD::init()
 	}
 
 	std::cout<<"LCD::Initialized\n";
+
+	//Load CGFX manifest
+	if(cgfx::load_cgfx)
+	{
+		cgfx::load_cgfx = cgfx::loaded = load_manifest(cgfx::manifest_file);
+	}
 
 	return true;
 }
@@ -825,6 +847,31 @@ bool AGB_LCD::render_bg_mode_0(u32 bg_control)
 		if((current_tile_pixel % 2) == 0) { raw_color &= 0xF; }
 		else { raw_color >>= 4; }
 
+		//CGFX replacement
+		if(cgfx::load_cgfx)
+		{
+			u32 base_tile_addr = tile_addr - (current_tile_pixel >> 1);
+			std::string tile_hash = get_bg_hash(base_tile_addr, 4, palette_number);
+			if(has_hash(tile_hash))
+			{
+				ensure_cgfx_loaded(cgfx_stat.last_id);
+				u16 bg_tile_id = cgfx_stat.m_id[cgfx_stat.last_id];
+				if(bg_tile_id < cgfx_stat.bg_pixel_data.size() && !cgfx_stat.bg_pixel_data[bg_tile_id].empty())
+				{
+					u32 pixel_index = current_tile_pixel;
+					if(pixel_index < cgfx_stat.bg_pixel_data[bg_tile_id].size())
+					{
+						u32 custom_color = cgfx_stat.bg_pixel_data[bg_tile_id][pixel_index];
+						if(custom_color != cgfx::transparency_color)
+						{
+							if(raw_color != 0) { scanline_buffer[scanline_pixel_counter] = custom_color; }
+							return true;
+						}
+					}
+				}
+			}
+		}
+
 		//If the bg color is transparent, abort drawing
 		if(raw_color == 0) { return false; }
 
@@ -837,6 +884,31 @@ bool AGB_LCD::render_bg_mode_0(u32 bg_control)
 	{
 		tile_addr += current_tile_pixel;
 		u8 raw_color = mem->memory_map[tile_addr];
+
+		//CGFX replacement
+		if(cgfx::load_cgfx)
+		{
+			u32 base_tile_addr = tile_addr - current_tile_pixel;
+			std::string tile_hash = get_bg_hash(base_tile_addr, 8, palette_number);
+			if(has_hash(tile_hash))
+			{
+				ensure_cgfx_loaded(cgfx_stat.last_id);
+				u16 bg_tile_id = cgfx_stat.m_id[cgfx_stat.last_id];
+				if(bg_tile_id < cgfx_stat.bg_pixel_data.size() && !cgfx_stat.bg_pixel_data[bg_tile_id].empty())
+				{
+					u32 pixel_index = current_tile_pixel;
+					if(pixel_index < cgfx_stat.bg_pixel_data[bg_tile_id].size())
+					{
+						u32 custom_color = cgfx_stat.bg_pixel_data[bg_tile_id][pixel_index];
+						if(custom_color != cgfx::transparency_color)
+						{
+							if(raw_color != 0) { scanline_buffer[scanline_pixel_counter] = custom_color; }
+							return true;
+						}
+					}
+				}
+			}
+		}
 
 		//If the bg color is transparent, abort drawing
 		if(raw_color == 0) { return false; }
@@ -1673,6 +1745,28 @@ void AGB_LCD::step()
 					if(SDL_MUSTLOCK(final_screen)){ SDL_UnlockSurface(final_screen); }
 
 					config::render_external_hw(final_screen);
+				}
+			}
+
+			//Process deferred CGFX tile loading in VBlank
+			if(cgfx::load_cgfx && !cgfx_stat.pending_loads.empty())
+			{
+				cgfx_stat.cgfx_current_frame++;
+
+				evict_lru_entries();
+
+				u32 load_count = 0;
+				for(u32 x = 0; x < cgfx_stat.pending_loads.size() && load_count < 4; )
+				{
+					if(load_image_data_by_id(cgfx_stat.pending_loads[x]))
+					{
+						load_count++;
+						cgfx_stat.pending_loads.erase(cgfx_stat.pending_loads.begin() + x);
+					}
+					else
+					{
+						cgfx_stat.pending_loads.erase(cgfx_stat.pending_loads.begin() + x);
+					}
 				}
 			}
 

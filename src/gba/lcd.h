@@ -12,6 +12,7 @@
 #include "SDL2/SDL.h"
 #include "SDL2/SDL_opengl.h"
 #include "mmu.h"
+#include "custom_graphics.h"
 
 #ifndef GBA_LCD
 #define GBA_LCD
@@ -58,7 +59,23 @@ class AGB_LCD
 	#endif
 
 	agb_lcd_data lcd_stat;
+	gba_cgfx_data cgfx_stat;
 	u32 lcd_clock;
+
+	//CGFX functions
+	bool load_manifest(std::string filename);
+	bool load_meta_data();
+	bool load_image_data_by_id(u32 hash_id);
+	bool find_meta_data_by_id(u32 hash_id);
+	void ensure_cgfx_loaded(u32 hash_id);
+	void evict_lru_entries();
+	bool has_hash(std::string hash);
+	std::string get_bg_hash(u32 tile_addr, u8 depth, u8 palette_id);
+	std::string get_obj_hash(u32 tile_addr, u8 depth, u8 palette_id, u8 shape, u8 size);
+	void invalidate_cgfx();
+	void render_cgfx_bg_pixel(u16 bg_tile_id, u8 raw_color);
+	void dump_obj(int obj_index);
+	void dump_bg(int bg_index);
 
 	int max_fullscreen_ratio;
 	bool power_antenna_osd;
