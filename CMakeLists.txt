@@ -2,8 +2,11 @@ cmake_minimum_required(VERSION 3.5)
 
 project(gbe_plus)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 if (NOT MSVC)
-	add_definitions(-O3 -funroll-loops -Wno-error -Wno-narrowing -std=c++17)
+	add_definitions(-O3 -funroll-loops -Wno-error -Wno-narrowing)
 endif()
 
 if (MSVC AND WIN32)
