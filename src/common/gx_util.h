@@ -46,12 +46,8 @@ class gx_matrix
 	float data[16];
 };
 
-#ifdef GBE_OGL
-
-//GLSL vertex and fragment shader loader
+//GLSL vertex and fragment shader loader (requires GBE_OGL for actual functionality)
 GLuint gx_load_shader(std::string vertex_shader_file, std::string fragment_shader_file, u32 &external_data_usage);
-
-#endif
 
 //2D distance
 float dist(float x1, float y1, float x2, float y2);

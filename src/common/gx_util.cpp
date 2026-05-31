@@ -265,6 +265,15 @@ GLuint gx_load_shader(std::string vertex_shader_file, std::string fragment_shade
 	return program_id;
 }
 
+#else
+
+/****** Stub for non-OpenGL builds ******/
+GLuint gx_load_shader(std::string vertex_shader_file, std::string fragment_shader_file, u32 &ext_data_usage)
+{
+	std::cout<<"OGL::Warning - OpenGL not enabled, shader loading unavailable\n";
+	return 0;
+}
+
 #endif
 
 /****** Returns distance between 2D vectors ******/

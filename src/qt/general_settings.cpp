@@ -2503,13 +2503,21 @@ void gen_settings::audio_driver_change()
 	if(index > 0)
 	{
 		config::override_audio_driver = SDL_GetAudioDriver(index - 1);
+#ifdef _WIN32
+		_putenv_s("SDL_AUDIODRIVER", config::override_audio_driver.c_str());
+#else
 		setenv("SDL_AUDIODRIVER", config::override_audio_driver.c_str(), 1);
+#endif
 	}
 
 	else
 	{
 		config::override_audio_driver = "";
+#ifdef _WIN32
+		_putenv_s("SDL_AUDIODRIVER", "");
+#else
 		setenv("SDL_AUDIODRIVER", "", 1);
+#endif
 	}
 }
 
