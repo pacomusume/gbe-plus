@@ -1628,13 +1628,8 @@ bool DMG_LCD::load_image_data_by_id(u32 hash_id)
 		}
 	}
 
-	//Create OpenGL texture if OpenGL is initialized
-	#ifdef GBE_OGL
-	if(gl_context)
-	{
-		create_cgfx_texture(hash_id, type_byte, img_w, img_h, &cgfx_pixels[0]);
-	}
-	#endif
+	// GPU texture creation deferred to avoid GL state corruption during scanline rendering
+	// Textures will be created on-demand in a future GPU compositing pass
 
 	SDL_FreeSurface(source);
 	return true;
