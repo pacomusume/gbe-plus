@@ -26,7 +26,7 @@ else()
     message(STATUS "SDL2 not found.")
 endif()
 
-option(LINK_CABLE "Enable link cable emulation (requires SDL2_net)" ON)
+option(LINK_CABLE "Enable link cable emulation (requires SDL2_net)" OFF)
 
 if (LINK_CABLE)
     find_package(SDL2NET REQUIRED)
