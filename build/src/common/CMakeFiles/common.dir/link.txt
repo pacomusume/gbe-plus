@@ -1,0 +1,2 @@
+/usr/bin/ar qc libcommon.a CMakeFiles/common.dir/config.cpp.o CMakeFiles/common.dir/hash.cpp.o CMakeFiles/common.dir/util.cpp.o CMakeFiles/common.dir/gx_util.cpp.o CMakeFiles/common.dir/cgfx_common.cpp.o CMakeFiles/common.dir/osd.cpp.o
+/usr/bin/ranlib libcommon.a

@@ -30,6 +30,7 @@ else()
 endif()
 
 option(LINK_CABLE "Enable link cable emulation (requires SDL2_net)" OFF)
+option(USE_SDL2_IMAGE "Use SDL2_image for PNG/BMP loading (for CGFX)" ON)
 
 if (LINK_CABLE)
     find_package(SDL2NET REQUIRED)

@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -rdynamic CMakeFiles/gbe_plus.dir/main.cpp.o -o gbe_plus  common/libcommon.a gba/libgba.a dmg/libdmg.a sgb/libsgb.a nds/libnds.a min/libmin.a -Wl,-Bstatic -lSDL2main -Wl,-Bdynamic -lSDL2 -lSDL2_net -lGL common/libcommon.a -Wl,-Bstatic -lSDL2main -Wl,-Bdynamic -lSDL2 -lGL 

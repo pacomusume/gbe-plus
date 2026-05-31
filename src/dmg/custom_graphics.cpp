@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "SDL2/SDL_image.h"
 #include "common/hash.h"
 #include "common/util.h"
 #include "common/cgfx_common.h"
@@ -298,7 +299,7 @@ bool DMG_LCD::load_image_data()
 
 	//NOTE - Only call this function during manifest loading, immediately after the filename AND type are parsed
 	std::string filename = config::data_path + cgfx_stat.m_files.back();
-	SDL_Surface* source = SDL_LoadBMP(filename.c_str());
+	SDL_Surface* source = IMG_Load(filename.c_str());
 
 	if(source == NULL)
 	{
@@ -309,18 +310,17 @@ bool DMG_LCD::load_image_data()
 		return false;
 	}
 
-	int custom_bpp = source->format->BitsPerPixel;
-
-	if(custom_bpp != 24)
-	{
-		std::cout<<"GBE::CGFX - " << filename << " has " << custom_bpp << "bpp instead of 24bpp \n";
-		return false;
-	}
+	//Convert to standard 32-bit ARGB format
+	SDL_Surface* converted = SDL_ConvertSurfaceFormat(source, SDL_PIXELFORMAT_ARGB8888, 0);
+	SDL_FreeSurface(source);
+	if(converted == NULL) { return false; }
+	source = converted;
 
 	//Verify source width
 	if((source->w % 8) != 0)
 	{
 		std::cout<<"GBE::CGFX - " << filename << " has irregular width -> " << source->w << "\n";
+		SDL_FreeSurface(source);
 		return false;
 	}
 
@@ -328,17 +328,18 @@ bool DMG_LCD::load_image_data()
 	if((source->h % 8) != 0)
 	{
 		std::cout<<"GBE::CGFX - " << filename << " has irregular height -> " << source->h << "\n";
+		SDL_FreeSurface(source);
 		return false;
 	}
 		
 	std::vector<u32> cgfx_pixels;
 
-	//Load 24-bit data
-	u8* pixel_data = (u8*)source->pixels;
+	//Load 32-bit ARGB data
+	u32* pixel_data = (u32*)source->pixels;
 
-	for(int a = 0, b = 0; a < (source->w * source->h); a++, b+=3)
+	for(int a = 0; a < (source->w * source->h); a++)
 	{
-		cgfx_pixels.push_back(0xFF000000 | (pixel_data[b+2] << 16) | (pixel_data[b+1] << 8) | (pixel_data[b]));
+		cgfx_pixels.push_back(pixel_data[a] | 0xFF000000);
 	}
 
 	//Store OBJ pixel data
@@ -357,7 +358,7 @@ bool DMG_LCD::load_meta_data()
 
 	//NOTE - Only call this function during manifest loading, immediately after the filename is parsed
 	std::string filename = config::data_path + cgfx_stat.m_meta_files.back();
-	SDL_Surface* source = SDL_LoadBMP(filename.c_str());
+	SDL_Surface* source = IMG_Load(filename.c_str());
 
 	if(source == NULL)
 	{
@@ -365,18 +366,17 @@ bool DMG_LCD::load_meta_data()
 		return false;
 	}
 
-	int custom_bpp = source->format->BitsPerPixel;
-
-	if(custom_bpp != 24)
-	{
-		std::cout<<"GBE::CGFX - " << filename << " has " << custom_bpp << "bpp instead of 24bpp \n";
-		return false;
-	}
+	//Convert to standard 32-bit ARGB format
+	SDL_Surface* converted = SDL_ConvertSurfaceFormat(source, SDL_PIXELFORMAT_ARGB8888, 0);
+	SDL_FreeSurface(source);
+	if(converted == NULL) { return false; }
+	source = converted;
 
 	//Verify source width
 	if((source->w % 8) != 0)
 	{
 		std::cout<<"GBE::CGFX - " << filename << " has irregular width -> " << source->w << "\n";
+		SDL_FreeSurface(source);
 		return false;
 	}
 
@@ -384,17 +384,18 @@ bool DMG_LCD::load_meta_data()
 	if((source->h % 8) != 0)
 	{
 		std::cout<<"GBE::CGFX - " << filename << " has irregular height -> " << source->h << "\n";
+		SDL_FreeSurface(source);
 		return false;
 	}
 		
 	std::vector<u32> cgfx_pixels;
 
-	//Load 24-bit data
-	u8* pixel_data = (u8*)source->pixels;
+	//Load 32-bit ARGB data
+	u32* pixel_data = (u32*)source->pixels;
 
-	for(int a = 0, b = 0; a < (source->w * source->h); a++, b+=3)
+	for(int a = 0; a < (source->w * source->h); a++)
 	{
-		cgfx_pixels.push_back(0xFF000000 | (pixel_data[b+2] << 16) | (pixel_data[b+1] << 8) | (pixel_data[b]));
+		cgfx_pixels.push_back(pixel_data[a] | 0xFF000000);
 	}
 
 	//Store meta pixel data
@@ -1555,7 +1556,7 @@ bool DMG_LCD::load_image_data_by_id(u32 hash_id)
 	u8 type_byte = cgfx_stat.m_types[hash_id];
 	u16 pixel_id = cgfx_stat.m_id[hash_id];
 
-	SDL_Surface* source = SDL_LoadBMP(filename.c_str());
+	SDL_Surface* source = IMG_Load(filename.c_str());
 
 	if(source == NULL)
 	{
@@ -1565,14 +1566,15 @@ bool DMG_LCD::load_image_data_by_id(u32 hash_id)
 		return false;
 	}
 
-	int custom_bpp = source->format->BitsPerPixel;
-
-	if(custom_bpp != 24)
+	//Convert to standard 32-bit ARGB format
+	SDL_Surface* converted = SDL_ConvertSurfaceFormat(source, SDL_PIXELFORMAT_ARGB8888, 0);
+	SDL_FreeSurface(source);
+	if(converted == NULL)
 	{
-		std::cout<<"GBE::CGFX(Lazy) - " << filename << " has " << custom_bpp << "bpp instead of 24bpp \n";
-		SDL_FreeSurface(source);
+		std::cout<<"GBE::CGFX(Lazy) - Could not convert " << filename << " to ARGB8888\n";
 		return false;
 	}
+	source = converted;
 
 	//Verify source width and height are multiples of 8
 	if((source->w % 8) != 0)
@@ -1592,12 +1594,12 @@ bool DMG_LCD::load_image_data_by_id(u32 hash_id)
 	std::vector<u32> cgfx_pixels;
 	cgfx_pixels.reserve(source->w * source->h);
 
-	//Load 24-bit data and convert to 32-bit ARGB
-	u8* pixel_data = (u8*)source->pixels;
+	//Load 32-bit ARGB data
+	u32* pixel_data = (u32*)source->pixels;
 
-	for(int a = 0, b = 0; a < (source->w * source->h); a++, b+=3)
+	for(int a = 0; a < (source->w * source->h); a++)
 	{
-		cgfx_pixels.push_back(0xFF000000 | (pixel_data[b+2] << 16) | (pixel_data[b+1] << 8) | (pixel_data[b]));
+		cgfx_pixels.push_back(pixel_data[a] | 0xFF000000);
 	}
 
 	u32 img_w = source->w;

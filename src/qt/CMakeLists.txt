@@ -50,6 +50,10 @@ set(HEADERS
 add_executable(gbe_plus_qt ${SRCS} ${HEADERS})
 target_link_libraries(gbe_plus_qt common dmg ${GBE_QT_LIBS} ${SDL2_LIBRARY} ${SDL2MAIN_LIBRARY})
 
+if (USE_SDL2_IMAGE)
+    target_link_libraries(gbe_plus_qt ${SDL2_IMAGE_LIBRARIES})
+endif()
+
 if(BUILD_GBA)
     target_link_libraries(gbe_plus_qt gba)
 endif()

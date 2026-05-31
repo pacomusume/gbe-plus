@@ -58,6 +58,10 @@ endif()
 target_link_libraries(gbe_plus common dmg)
 target_link_libraries(gbe_plus ${SDL2_LIBRARY} ${SDL2MAIN_LIBRARY})
 
+if (USE_SDL2_IMAGE)
+    target_link_libraries(gbe_plus ${SDL2_IMAGE_LIBRARIES})
+endif()
+
 if (LINK_CABLE)
     target_link_libraries(gbe_plus ${SDL2NET_LIBRARY})
 endif()
